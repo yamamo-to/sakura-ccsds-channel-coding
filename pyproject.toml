@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ccsds-codec"
+version = "0.1.0"
+description = "CCSDS 131/132 compliant channel coding (RS, Conv, Turbo)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Your Name", email = "you@example.com"},
+]
+dependencies = [
+    "numpy",
+    "numba",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
