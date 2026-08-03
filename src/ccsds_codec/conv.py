@@ -1,21 +1,31 @@
 """CCSDS convolutional encoder/decoder (rate 1/2, constraint length 7).
 
-The encoder uses the generator polynomials specified in the CCSDS recommendation:
+Implements the convolutional code specified in CCSDS 131.0-B-4 / 101.0-B-4:
 
-* G0 = 0b1111001 (0x79)
-* G1 = 0o133  # 0b1011011 per CCSDS spec (0x5B)
+* G1 = 1111001 (octal 171) — first output symbol, transmitted uninverted
+* G2 = 1011011 (octal 133) — second output symbol, inverted on the channel
+  ("symbol inversion on the output path of G2")
 
-Both encoder and Viterbi decoder operate on binary bit lists where the most
-significant bit of the shift register corresponds to the newest input bit.
+The shift register keeps the newest input bit at the LSB, so the generator
+polynomials are given in the matching *lsb-current* representation (bit j of
+the polynomial taps the input received j steps ago):
+
+* G0 = 0x4F  (bit-reversed 0x79 = 171_8) — first output, not inverted
+* G1 = 0x6D  (bit-reversed 0x5B = 133_8) — second output, inverted on channel
+
+This produces exactly the stream expected by gr-satellites' CCSDS receiver
+configuration (GNU Radio ``fec.cc_decoder`` with polys ``[79, -109]``).
 """
 
 from __future__ import annotations
 
 from numba import njit
 
-# Generator polynomials (7‑bit, MSB corresponds to the newest bit)
-G0 = 0o121  # 0b1010001 per CCSDS spec
-G1 = 0o133  # 0b1011011 per CCSDS spec
+# Generator polynomials in lsb-current representation (LSB = newest input bit):
+#   G0 = 0x4F  <-> CCSDS G1 = 171_8 (first output, not inverted)
+#   G1 = 0x6D  <-> CCSDS G2 = 133_8 (second output, inverted on the channel)
+G0 = 0x4F
+G1 = 0x6D
 K = 7  # constraint length
 MASK = (1 << K) - 1
 
@@ -31,10 +41,12 @@ def _parity(x: int) -> int:
 
 
 def encode(bits: list[int], terminate: bool = False) -> list[int]:
-    """Encode a list of input bits to a rate‑1/2 convolutional code.
+    """Encode a list of input bits to the CCSDS rate-1/2 convolutional code.
 
-    The output order is ``[s0, s1, s0, s1, ...]`` where ``s0`` and ``s1`` are the
-    two systematic parity bits for each input bit.
+    The output order is ``[s0, s1, s0, s1, ...]`` where ``s0`` is the first
+    output symbol (CCSDS G1 = 171_8) and ``s1`` is the second output symbol
+    (CCSDS G2 = 133_8) inverted, matching the on-air convention used by
+    gr-satellites (GNU Radio polys ``[79, -109]``).
     """
     if not bits:
         return []
@@ -48,14 +60,14 @@ def encode(bits: list[int], terminate: bool = False) -> list[int]:
         # shift left, insert new bit at LSB (newest) – we keep newest at LSB
         state = ((state << 1) | (b & 1)) & MASK
         out.append(_parity(state & G0))
-        out.append(_parity(state & G1))
+        out.append(1 - _parity(state & G1))
 
     if terminate:
         # flush the shift register by feeding K-1 zeros (tail bits)
         for _ in range(K - 1):
             state = ((state << 1) | 0) & MASK
             out.append(_parity(state & G0))
-            out.append(_parity(state & G1))
+            out.append(1 - _parity(state & G1))
     return out
 
 
@@ -63,10 +75,13 @@ def encode(bits: list[int], terminate: bool = False) -> list[int]:
 
 
 def encode_cxx(bits: list[int], terminate: bool = True) -> list[int]:
-    """Encode using the exact algorithm employed by the C++ ``ViterbiCodec``
-    (as found in *gr‑satellites*). This reproduces the same bit stream, including
-    the ``K‑1`` zero‑flush bits, so that the output matches the reference C++
-    implementation.
+    """Encode using the C++ ``ViterbiCodec`` algorithm (as found in *gr-satellites*).
+
+    Mirrors the C++ ``ViterbiCodec`` table construction and state update
+    (polys ``0x4F``/``0x6D``) and then inverts the second output symbol per the
+    CCSDS channel convention. The result is bit-identical to the stream that
+    gr-satellites' receiver decodes with GNU Radio ``fec.cc_decoder``
+    (polys ``[79, -109]``), including the ``K-1`` zero-flush bits.
 
     Parameters
     ----------
@@ -113,13 +128,17 @@ def encode_cxx(bits: list[int], terminate: bool = True) -> list[int]:
     out: list[int] = []
     for b in bits:
         idx = state | (b << (K - 1))
-        out.extend(int(ch) for ch in outputs[idx])
+        sym = outputs[idx]
+        out.append(int(sym[0]))
+        out.append(1 - int(sym[1]))  # G2 inverted on the channel
         # NextState as per C++: (state >> 1) | (b << (K - 2))
         state = (state >> 1) | (b << (K - 2))
     if terminate:
         for _ in range(K - 1):
             idx = state  # input bit is 0
-            out.extend(int(ch) for ch in outputs[idx])
+            sym = outputs[idx]
+            out.append(int(sym[0]))
+            out.append(1 - int(sym[1]))
             state = state >> 1  # shift in zero
     return out
 
@@ -150,7 +169,7 @@ def viterbi_decode(soft_bits: list[int]) -> list[int]:
         for inp in (0, 1):
             ns = ((s << 1) | inp) & MASK
             out0 = _parity(ns & G0)
-            out1 = _parity(ns & G1)
+            out1 = 1 - _parity(ns & G1)  # G2 is inverted on the channel
             next_state[s][inp] = ns
             output_bits[s][inp] = (out0, out1)
 
