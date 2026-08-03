@@ -3,7 +3,7 @@
 The encoder uses the generator polynomials specified in the CCSDS recommendation:
 
 * G0 = 0b1111001 (0x79)
-* G1 = 0b1011011 (0x5B)
+* G1 = 0o133  # 0b1011011 per CCSDS spec (0x5B)
 
 Both encoder and Viterbi decoder operate on binary bit lists where the most
 significant bit of the shift register corresponds to the newest input bit.
@@ -12,14 +12,16 @@ significant bit of the shift register corresponds to the newest input bit.
 from __future__ import annotations
 
 from typing import List, Tuple
+from numba import njit
 
 # Generator polynomials (7‑bit, MSB corresponds to the newest bit)
 G0 = 0o121  # 0b1010001 per CCSDS spec
-G1 = 0b1011011
+G1 = 0o133  # 0b1011011 per CCSDS spec
 K = 7  # constraint length
 MASK = (1 << K) - 1
 
 
+@njit(fastmath=True)
 def _parity(x: int) -> int:
     """Return the parity (XOR of all bits) of ``x`` as 0 or 1."""
     p = 0
@@ -35,10 +37,16 @@ def encode(bits: List[int]) -> List[int]:
     The output order is ``[s0, s1, s0, s1, ...]`` where ``s0`` and ``s1`` are the
     two systematic parity bits for each input bit.
     """
+    if not bits:
+        return []
+    # Validate bits are 0 or 1
+    for i, b in enumerate(bits):
+        if b not in (0, 1):
+            raise ValueError(f"Bit at position {i} is not 0 or 1: {b}")
     state = 0
     out: List[int] = []
     for b in bits:
-        # shift left, insert new bit at LSB (oldest) – we keep newest at MSB
+        # shift left, insert new bit at LSB (newest) – we keep newest at LSB
         state = ((state << 1) | (b & 1)) & MASK
         out.append(_parity(state & G0))
         out.append(_parity(state & G1))
@@ -46,6 +54,15 @@ def encode(bits: List[int]) -> List[int]:
 
 
 # numba disabled for compatibility
+
+def decode(soft_bits: List[int]) -> List[int]:
+    """Decode soft bits using the Viterbi decoder.
+
+    This wrapper provides a conventional ``decode`` entry point so external
+    callers (including the high‑level API) can import ``conv.decode`` directly.
+    It simply forwards to the existing Viterbi implementation.
+    """
+    return viterbi_decode(soft_bits)
 
 def viterbi_decode(soft_bits: List[int]) -> List[int]:
     """Very simple hard‑decision Viterbi decoder for the CCSDS code.
