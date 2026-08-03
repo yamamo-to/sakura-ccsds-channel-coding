@@ -11,7 +11,6 @@ significant bit of the shift register corresponds to the newest input bit.
 
 from __future__ import annotations
 
-from typing import List, Tuple
 from numba import njit
 
 # Generator polynomials (7‑bit, MSB corresponds to the newest bit)
@@ -31,7 +30,7 @@ def _parity(x: int) -> int:
     return p
 
 
-def encode(bits: List[int]) -> List[int]:
+def encode(bits: list[int], terminate: bool = False) -> list[int]:
     """Encode a list of input bits to a rate‑1/2 convolutional code.
 
     The output order is ``[s0, s1, s0, s1, ...]`` where ``s0`` and ``s1`` are the
@@ -44,18 +43,88 @@ def encode(bits: List[int]) -> List[int]:
         if b not in (0, 1):
             raise ValueError(f"Bit at position {i} is not 0 or 1: {b}")
     state = 0
-    out: List[int] = []
+    out: list[int] = []
     for b in bits:
         # shift left, insert new bit at LSB (newest) – we keep newest at LSB
         state = ((state << 1) | (b & 1)) & MASK
         out.append(_parity(state & G0))
         out.append(_parity(state & G1))
+
+    if terminate:
+        # flush the shift register by feeding K-1 zeros (tail bits)
+        for _ in range(K - 1):
+            state = ((state << 1) | 0) & MASK
+            out.append(_parity(state & G0))
+            out.append(_parity(state & G1))
     return out
 
 
 # numba disabled for compatibility
 
-def decode(soft_bits: List[int]) -> List[int]:
+
+def encode_cxx(bits: list[int], terminate: bool = True) -> list[int]:
+    """Encode using the exact algorithm employed by the C++ ``ViterbiCodec``
+    (as found in *gr‑satellites*). This reproduces the same bit stream, including
+    the ``K‑1`` zero‑flush bits, so that the output matches the reference C++
+    implementation.
+
+    Parameters
+    ----------
+    bits: List[int]
+        Input payload (0/1). Must be non‑empty.
+    terminate: bool, default True
+        Whether to append the ``K‑1`` flushing zeros (identical to the C++
+        encoder's behaviour). Set to ``False`` to obtain the raw 2·len(bits)
+        output.
+    """
+    if not bits:
+        raise ValueError("Input bit list must not be empty for C++‑compatible encode")
+    for i, b in enumerate(bits):
+        if b not in (0, 1):
+            raise ValueError(f"Bit at position {i} is not 0 or 1: {b}")
+
+    # ---- 1. Build reversed polynomials (lsb‑current representation) ----
+    def rev(poly: int) -> int:
+        out = 0
+        for _ in range(K):
+            out = (out << 1) | (poly & 1)
+            poly >>= 1
+        return out
+
+    rev_polys = [rev(G0), rev(G1)]
+
+    # ---- 2. Pre‑compute output table (identical to ViterbiCodec::InitializeOutputs) ----
+    outputs: list[str] = ["" for _ in range(1 << K)]
+    for state in range(1 << K):
+        out_bits = []
+        for poly in rev_polys:
+            tmp_state = state
+            tmp_poly = poly
+            parity = 0
+            for _ in range(K):
+                parity ^= (tmp_state & 1) & (tmp_poly & 1)
+                tmp_state >>= 1
+                tmp_poly >>= 1
+            out_bits.append("1" if parity else "0")
+        outputs[state] = "".join(out_bits)
+
+    # ---- 3. Encode loop (mirrors C++ Encode) ----
+    state = 0
+    out: list[int] = []
+    for b in bits:
+        idx = state | (b << (K - 1))
+        out.extend(int(ch) for ch in outputs[idx])
+        # NextState as per C++: (state >> 1) | (b << (K - 2))
+        state = (state >> 1) | (b << (K - 2))
+    if terminate:
+        for _ in range(K - 1):
+            idx = state  # input bit is 0
+            out.extend(int(ch) for ch in outputs[idx])
+            state = state >> 1  # shift in zero
+    return out
+
+
+def decode(soft_bits: list[int]) -> list[int]:
     """Decode soft bits using the Viterbi decoder.
 
     This wrapper provides a conventional ``decode`` entry point so external
@@ -64,7 +133,8 @@ def decode(soft_bits: List[int]) -> List[int]:
     """
     return viterbi_decode(soft_bits)
 
-def viterbi_decode(soft_bits: List[int]) -> List[int]:
+
+def viterbi_decode(soft_bits: list[int]) -> list[int]:
     """Very simple hard‑decision Viterbi decoder for the CCSDS code.
 
     ``soft_bits`` must be a list of 0/1 values with length a multiple of 2.
@@ -85,12 +155,12 @@ def viterbi_decode(soft_bits: List[int]) -> List[int]:
             output_bits[s][inp] = (out0, out1)
 
     # Path metrics: large initial value
-    INF = 10 ** 9
+    INF = 10**9
     path_metric = [INF] * (1 << K)
     path_metric[0] = 0
     # Store predecessor information for traceback
     predecessor = [[-1] * (1 << K) for _ in range(len(soft_bits) // 2 + 1)]
-    decoded_bits: List[int] = []
+    decoded_bits: list[int] = []
 
     for i in range(0, len(soft_bits), 2):
         r0, r1 = soft_bits[i], soft_bits[i + 1]
@@ -128,6 +198,7 @@ def viterbi_decode(soft_bits: List[int]) -> List[int]:
 
 def main_encode() -> None:
     import sys
+
     data = sys.stdin.buffer.read()
     bits = []
     for b in data:
@@ -136,21 +207,27 @@ def main_encode() -> None:
     enc = encode(bits)
     # pack to bytes
     from .utils import bits_to_bytes
+
     sys.stdout.buffer.write(bits_to_bytes(enc))
 
 
 def main_decode() -> None:
     import sys
+
     data = sys.stdin.buffer.read()
     # interpret input as bits
     from .utils import bytes_to_bits
+
     bits = bytes_to_bits(data)
     dec = viterbi_decode(bits)
     from .utils import bits_to_bytes
+
     sys.stdout.buffer.write(bits_to_bytes(dec))
+
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="CCSDS convolutional coder")
     parser.add_argument("mode", choices=["encode", "decode"], help="operation mode")
     args = parser.parse_args()

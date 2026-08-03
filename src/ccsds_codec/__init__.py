@@ -5,15 +5,15 @@ import them directly from ``ccsds_codec`` and achieve compatibility with other
 open‑source projects that expect these names at the package root.
 """
 
-from .utils import bytes_to_bits, bits_to_bytes, bits_to_bytes_strict
-from .api import RSCodec, ConvCodec, TurboCodec, Randomizer
+from .api import ConvCodec, Randomizer, RSCodec, TurboCodec
+from .utils import bits_to_bytes, bits_to_bytes_strict, bytes_to_bits
 
 __all__ = [
-    "bytes_to_bits",
+    "ConvCodec",
+    "RSCodec",
+    "Randomizer",
+    "TurboCodec",
     "bits_to_bytes",
     "bits_to_bytes_strict",
-    "RSCodec",
-    "ConvCodec",
-    "TurboCodec",
-    "Randomizer",
+    "bytes_to_bits",
 ]
