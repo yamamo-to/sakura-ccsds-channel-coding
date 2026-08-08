@@ -10,6 +10,7 @@ Requires-Dist: numba
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: pytest-cov; extra == "dev"
+Dynamic: requires-python
 
 # CCSDS Codec Python Implementation
 

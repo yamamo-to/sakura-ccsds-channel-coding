@@ -11,6 +11,43 @@ import pytest
 from ccsds_codec import rs
 
 
+def _gf_mul_bruteforce(a: int, b: int) -> int:
+    """Reference GF(2^8) multiplication via the shift-and-add (Russian peasant) algorithm.
+
+    Used as an independent oracle for the table-driven ``gf_mul``.
+    """
+    prim = rs.PRIMITIVE_POLY
+    p = 0
+    while b:
+        if b & 1:
+            p ^= a
+        a <<= 1
+        if a & 0x100:
+            a ^= prim
+        b >>= 1
+    return p
+
+
+def test_gf_tables_consistent():
+    """Verify the EXP/LOG tables built by ``_init_tables`` are a valid GF(2^8)."""
+    exp, log = rs.EXP_TABLE, rs.LOG_TABLE
+    assert len(log) == rs.GF_SIZE == 256
+    # EXP[0..254] is a permutation of 1..255, i.e. the LFSR cycles through all
+    # 255 non-zero elements.
+    assert sorted(exp[:255]) == list(range(1, 256))
+    # Ranges differ on purpose: EXP maps exponent 0..254, LOG maps value 1..255.
+    for v in range(1, 256):
+        assert exp[log[v]] == v
+    for v in range(0, 255):
+        assert log[exp[v]] == v
+    # EXP is periodic with period 255; gf_mul/gf_pow index up to LOG sums of 508.
+    assert exp[255] == exp[0] == 1
+    assert exp[254 + 255] == exp[254]
+    for a in (1, 3, 57, 131, 200, 255):
+        for b in (1, 5, 83, 170, 254, 255):
+            assert rs.gf_mul(a, b) == _gf_mul_bruteforce(a, b), f"gf_mul mismatch at {a}*{b}"
+
+
 def test_gf_arithmetic_basic():
     assert rs.gf_add(0x57, 0x83) == 0xD4  # XOR
     assert rs.gf_sub(0x57, 0x83) == 0xD4
