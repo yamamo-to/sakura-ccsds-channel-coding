@@ -5,7 +5,7 @@ import random
 import pytest
 
 from ccsds_codec.conv import PUNCTURE_PATTERNS, encode, viterbi_decode
-from ccsds_codec.conv import _decode_byte_padded
+from ccsds_codec.conv import decode_byte_padded
 
 PUNCTURED_RATES = ["2/3", "3/4", "5/6", "7/8"]
 
@@ -66,7 +66,7 @@ def test_byte_padded_decode(rate):
     enc = encode(bits, rate=rate)
     padded = enc + [0] * (8 - len(enc) % 8)
     assert len(padded) % 8 == 0
-    dec = _decode_byte_padded(padded, rate)
+    dec = decode_byte_padded(padded, rate)
     assert dec == bits
 
 

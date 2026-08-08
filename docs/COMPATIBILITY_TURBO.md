@@ -6,7 +6,7 @@
 | **インタリーバ** | `ccsds_interleaver()` – CCSDS 131.0‑B‑2 の quadratic‑permutation (f1=17, f2=31) を実装。エイリアス `interleave` も残し、既存コードと互換性保持。 |
 | **エンコード** | `encode(bits, puncture=False)` – **Rate 1/3** (systematic + parity1 + parity2)。<br>`encode(bits, puncture=True)` – **Rate 1/4** の CCSDS パンクチュア（偶数インデックスの parity2 ビットだけ残す）。 |
 | **デコード** | `decode_unpunctured()` – 未パンクチュア (Rate 1/3) 用ハード決定 Viterbi デコーダ。<br>`decode(punctured_bits, iterations=5)` – **Full MAP (Log‑MAP) デコーダ**。パンクチュアストリームから欠損 parity2 ビットを 0 (LLR=0) として復元し、5 回の BCJR 反復で系統ビットを復元。 |
-| **CLI 挙動** | `main_encode` が `puncture` オプションを受け取り、`main_decode` は入力長から自動的に「未パンクチュア」か「パンクチュア」かを判定し、適切なデコーダを呼び出す。 |
+| **CLI 挙動** | 統一 CLI `python -m ccsds_codec` で、`turbo-enc [--rate R]` がエンコード、`turbo-dec [--rate R]` がデコードを担当。レート指定なし時は入力長から自動的に「未パンクチュア」「パンクチュア」「1/6」を判定し、適切なデコーダを呼び出す。 |
 | **テスト** | `tests/test_turbo_roundtrip.py` で 100 回のランダムビット列に対し、未パンクチュア・パンクチュア双方の **エンコード ⇢ デコード** が 100 % 正しく復元できることを自動テストで検証。 |
 
 ## 互換性チェック（実行結果）

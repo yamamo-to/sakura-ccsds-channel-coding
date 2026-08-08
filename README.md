@@ -1,62 +1,97 @@
 # CCSDS Codec Python Implementation
 
-This repository provides lightweight, pipe‑compatible reference implementations of the
-CCSDS forward error correction chain:
+This repository provides lightweight, pipe‑compatible implementations of the
+CCSDS forward error correction chain (CCSDS 131.0‑B‑4):
 
-* **Randomizer** – CCSDS scrambler/descrambler (polynomial *x⁷ + x⁶ + 1*).
-* **Convolutional coder** – rate‑1/2, constraint length 7 (generators 0x79 and 0x5B).
-* **Reed‑Solomon** – RS(255,223) over GF(2⁸) (compatible with the CCSDS standard).
-* **Turbo coder** – simplified version that concatenates two convolutional encoders
-  with a deterministic interleaver.
+* **Randomizer** – CCSDS pseudo‑randomizer (polynomial *x⁸ + x⁷ + x⁵ + x³ + 1*).
+* **Convolutional coder** – rate‑1/2, constraint length 7 (generators 0x79 / 0x5B,
+  with the second output inverted on the channel), plus punctured rates
+  2/3, 3/4, 5/6 and 7/8.  Decoding uses the Viterbi algorithm.
+* **Reed–Solomon** – RS(255,223) over GF(2⁸), interleaving depth 1…5.
+* **Turbo coder** – RSC constituent codes, QPP interleaver, rates 1/2, 1/3, 1/4, 1/6,
+  decoded iteratively with the Log‑MAP algorithm.
 
-All tools read binary data from **stdin** and write the result to **stdout**, so they
-can be chained with ordinary Unix pipes.
+All tools read binary data from **stdin** and write the result to **stdout**, so
+they can be chained with ordinary Unix pipes.
 
 ## Installation
 
 ```bash
-pip install reedsolo  # required for Reed‑Solomon
+pip install numpy numba   # runtime dependencies
+pip install reedsolo      # optional: native Reed–Solomon backend
 ```
 
 ## Usage examples
 
+The unified CLI entry point is `python -m ccsds_codec`:
+
 ```bash
-# Scramble → Convolutional encode → Reed‑Solomon encode
+# Scramble → Convolutional encode → Reed–Solomon encode
 cat payload.bin |
-python -m ccsds_codec.randomizer |
-python -m ccsds_codec.conv encode |
-python -m ccsds_codec.rs encode > encoded.bin
+python -m ccsds_codec rand |
+python -m ccsds_codec conv-enc |
+python -m ccsds_codec rs-enc > encoded.bin
 
 # Reverse direction (decode)
 cat encoded.bin |
-python -m ccsds_codec.rs decode |
-python -m ccsds_codec.conv decode |
-python -m ccsds_codec.randomizer > recovered.bin
+python -m ccsds_codec rs-dec |
+python -m ccsds_codec conv-dec |
+python -m ccsds_codec rand > recovered.bin
 ```
 
-Turbo (simplified) example:
+Punctured convolutional rates and Turbo rates are selected with `--rate`:
 
 ```bash
-cat payload.bin |
-python -m ccsds_codec.turbo encode > turbo.bin
+python -m ccsds_codec conv-enc --rate 7/8 < payload.bin > encoded.bin
+python -m ccsds_codec conv-dec --rate 7/8 < encoded.bin > recovered.bin
 
-cat turbo.bin |
-python -m ccsds_codec.turbo decode > recovered.bin
+python -m ccsds_codec turbo-enc --rate 1/6 < payload.bin > turbo.bin
+python -m ccsds_codec turbo-dec --rate 1/6 < turbo.bin > recovered.bin
 ```
 
-The decoder for Turbo currently extracts only the systematic bits; a full MAP
-decoder can be added later.
+## Python API
 
----
+The high‑level API lives in `ccsds_codec.api` and is configured with value
+objects from `ccsds_codec.config`:
 
-Each module can also be invoked directly with a ``mode`` argument:
+```python
+from ccsds_codec import ConvCodec, ConvConfig, TurboCodec, TurboConfig
+
+conv = ConvCodec(ConvConfig(rate="3/4"))
+encoded = conv.encode(data)          # list[int] bits in, bits out
+decoded = conv.decode(encoded)
+
+turbo = TurboCodec(TurboConfig(rate="1/3"))
+encoded = turbo.encode(data, iterations=5)
+decoded = turbo.decode(encoded, iterations=10)
+```
+
+The raw bit‑level primitives are available under `ccsds_codec.core`
+(`convolutional`, `reed_solomon`, `turbo`, `randomizer`, `bits`).  The
+`ccsds_codec.conv` / `rs` / `turbo` / `randomizer` / `utils` modules remain as
+backwards‑compatible shims.
+
+## Source layout
+
+```
+src/ccsds_codec/
+├── core/            # pure algorithm modules (bits, galois, interleaver,
+│                    #   convolutional, reed_solomon, turbo, randomizer)
+├── api.py           # high-level codec classes (ConvCodec, RSCodec, ...)
+├── config.py        # configuration value objects (ConvConfig, TurboConfig)
+├── cli.py           # unified CLI dispatch
+├── __main__.py      # python -m ccsds_codec entry point
+├── conv.py          # backwards-compatible shims
+├── rs.py
+├── turbo.py
+├── randomizer.py
+└── utils.py
+```
+
+## Development
 
 ```bash
-python -m ccsds_codec.randomizer           # scrambles stdin
-python -m ccsds_codec.conv encode          # convolutional encode
-python -m ccsds_codec.rs decode            # Reed‑Solomon decode
-python -m ccsds_codec.turbo encode         # Turbo encode
+python -m pytest tests        # test suite (golden vectors, BER/FER sims)
+ruff check src/ccsds_codec    # lint
+python -m scripts.benchmark   # throughput benchmark
 ```
-
-The code is deliberately minimal and meant as a teaching/starting point rather
-than a production‑grade library.

@@ -41,15 +41,15 @@
 3. **畳み込み符号のラウンドトリップ**
    ```bash
    cat payload.bin |
-   python -m ccsds_codec.conv encode |
-   python -m ccsds_codec.conv decode | cmp -s - payload.bin && echo OK
+   python -m ccsds_codec conv-enc |
+   python -m ccsds_codec conv-dec | cmp -s - payload.bin && echo OK
    ```
    → `OK`
 
 4. **ランダマイザの自己逆性**
    ```bash
-   echo -n "test" | python -m ccsds_codec.randomizer |
-   python -m ccsds_codec.randomizer | cmp -s - <(echo -n "test") && echo OK
+   echo -n "test" | python -m ccsds_codec rand |
+   python -m ccsds_codec rand | cmp -s - <(echo -n "test") && echo OK
    ```
    → `OK`
 
@@ -60,17 +60,17 @@
    import sys, subprocess, random
    sys.path.append('/home/yamamo-to/ccsds-codec')
    payload = bytes([random.randrange(256) for _ in range(500)])
-   enc = subprocess.check_output([sys.executable, '-m', 'ccsds_codec.randomizer'], input=payload)
-   enc = subprocess.check_output([sys.executable, '-m', 'ccsds_codec.conv', 'encode'], input=enc)
-   enc = subprocess.check_output([sys.executable, '-m', 'ccsds_codec.rs', 'encode'], input=enc)
+   enc = subprocess.check_output([sys.executable, '-m', 'ccsds_codec', 'rand'], input=payload)
+   enc = subprocess.check_output([sys.executable, '-m', 'ccsds_codec', 'conv-enc'], input=enc)
+   enc = subprocess.check_output([sys.executable, '-m', 'ccsds_codec', 'rs-enc'], input=enc)
    # 15 バイトエラー注入（RS の訂正上限 16 バイト）
    enc_err = bytearray(enc)
    for _ in range(15):
        i = random.randrange(len(enc_err))
        enc_err[i] ^= random.randrange(1,256)
-   dec = subprocess.check_output([sys.executable, '-m', 'ccsds_codec.rs', 'decode'], input=bytes(enc_err))
-   dec = subprocess.check_output([sys.executable, '-m', 'ccsds_codec.conv', 'decode'], input=dec)
-   dec = subprocess.check_output([sys.executable, '-m', 'ccsds_codec.randomizer'], input=dec)
+   dec = subprocess.check_output([sys.executable, '-m', 'ccsds_codec', 'rs-dec'], input=bytes(enc_err))
+   dec = subprocess.check_output([sys.executable, '-m', 'ccsds_codec', 'conv-dec'], input=dec)
+   dec = subprocess.check_output([sys.executable, '-m', 'ccsds_codec', 'rand'], input=dec)
    print('End‑to‑end match?', dec[:len(payload)] == payload)
    PY
    ```
