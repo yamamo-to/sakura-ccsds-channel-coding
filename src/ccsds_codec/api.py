@@ -35,27 +35,29 @@ class RSCodec:
 
 
 class ConvCodec:
-    """Rate‑1/2 convolutional encoder/decoder wrapper."""
+    """Convolutional encoder/decoder wrapper (rates 1/2, 2/3, 3/4, 5/6, 7/8)."""
 
     @staticmethod
-    def encode(bits: list[int]) -> list[int]:
-        return conv_encode(bits)
+    def encode(bits: list[int], terminate: bool = False, rate: str = "1/2") -> list[int]:
+        return conv_encode(bits, terminate=terminate, rate=rate)
 
     @staticmethod
-    def decode(soft_bits: list[int]) -> list[int]:
-        return conv_decode(soft_bits)
+    def decode(soft_bits: list[int], rate: str = "1/2") -> list[int]:
+        return conv_decode(soft_bits, rate=rate)
 
 
 class TurboCodec:
-    """Turbo encoder/decoder wrapper (CCSDS compatible)."""
+    """Turbo encoder/decoder wrapper (rates 1/2, 1/3, 1/4, 1/6)."""
 
     @staticmethod
-    def encode(bits: list[int], puncture: bool = False) -> list[int]:
-        return turbo_encode(bits, puncture=puncture)
+    def encode(bits: list[int], puncture: bool = False, rate: str | None = None) -> list[int]:
+        return turbo_encode(bits, puncture=puncture, rate=rate)
 
     @staticmethod
-    def decode(punctured_bits: list[int], iterations: int = 5) -> list[int]:
-        return turbo_decode(punctured_bits, iterations=iterations)
+    def decode(
+        punctured_bits: list[int], iterations: int = 5, rate: str | None = None
+    ) -> list[int]:
+        return turbo_decode(punctured_bits, iterations=iterations, rate=rate)
 
     @staticmethod
     def decode_unpunctured(turbo_bits: list[int]) -> list[int]:

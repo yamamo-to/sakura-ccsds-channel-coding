@@ -1,11 +1,13 @@
 '''Additional edge‑case tests to improve coverage.'''
 
 import os
+import random
 import pytest
 
 from ccsds_codec.utils import bits_to_bytes, bytes_to_bits
 from ccsds_codec.conv import encode as conv_encode, viterbi_decode as conv_decode
 from ccsds_codec.rs import encode as rs_encode, decode as rs_decode, RS_K, RS_N
+from ccsds_codec.api import ConvCodec, TurboCodec
 
 
 def test_bits_to_bytes_empty():
@@ -58,3 +60,17 @@ def test_rs_decode_exceeds_error_capacity():
     # Decoding with too many errors should not produce the original data
     decoded = rs_decode(bytes(corrupted))
     assert decoded[: len(data)] != data
+
+
+def test_conv_codec_rate_passthrough():
+    bits = [random.randint(0, 1) for _ in range(64)]
+    for rate in ["2/3", "3/4", "5/6", "7/8"]:
+        encoded = ConvCodec.encode(bits, rate=rate)
+        assert ConvCodec.decode(encoded, rate=rate) == bits
+
+
+def test_turbo_codec_rate16_passthrough():
+    bits = [random.randint(0, 1) for _ in range(64)]
+    encoded = TurboCodec.encode(bits, rate="1/6")
+    assert len(encoded) == 6 * 64 + 20
+    assert TurboCodec.decode(encoded, rate="1/6") == bits
