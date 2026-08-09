@@ -37,7 +37,10 @@ def test_decode_consistency_across_iterations():
 
 
 def test_decode_zero_iterations_returns_systematic():
-    """When ``iterations`` is zero the MAP loop is skipped – the decoder should still return the systematic bits."""
+    """When ``iterations`` is zero the MAP loop is skipped.
+
+    The decoder should still return the systematic bits.
+    """
     bits = [random.randint(0, 1) for _ in range(15)]
     punctured = encode(bits, puncture=True)
     decoded = decode(punctured, iterations=0)

@@ -1,11 +1,13 @@
 """Additional property‑based tests for the CCSDS RS(255,223) codec.
 
 These tests check the generator polynomial characteristics, block handling, and
-fallback behaviour when the external ``reedsolo`` library is unavailable.
+error correction when the external ``reedsolo`` library is available.
 """
 
 import os
+
 import pytest
+
 from ccsds_codec.rs import (
     encode,
     decode,
@@ -15,10 +17,19 @@ from ccsds_codec.rs import (
     GENERATOR,
 )
 
+try:
+    import reedsolo  # noqa: F401
+
+    _REEDSOLO_AVAILABLE = True
+except ImportError:
+    _REEDSOLO_AVAILABLE = False
+
+
 def test_generator_properties():
     # The generator must be monic and have degree RS_SYMS (32) → length 33
     assert len(GENERATOR) == RS_SYMS + 1
     assert GENERATOR[0] == 1  # monic polynomial
+
 
 def test_encode_block_length():
     data = os.urandom(100)  # less than RS_K, will be padded internally
@@ -29,6 +40,7 @@ def test_encode_block_length():
     expected_blocks = (len(data) + RS_K - 1) // RS_K
     assert len(enc) == expected_blocks * RS_N
 
+
 def test_roundtrip_multiple_blocks():
     # Create data spanning three RS blocks (including padding)
     data = os.urandom(RS_K * 3 - 10)
@@ -36,6 +48,7 @@ def test_roundtrip_multiple_blocks():
     dec = decode(enc)
     # ``decode`` strips parity; we compare the original (unpadded part)
     assert dec[: len(data)] == data
+
 
 def test_fallback_strip_parity_when_no_errors():
     # Ensure that when no external decoder is present we simply strip parity.
@@ -47,10 +60,13 @@ def test_fallback_strip_parity_when_no_errors():
     dec = decode(bytes(corrupted))
     assert dec[: len(data)] == data
 
-@pytest.mark.skipif(True, reason="External reedsolo decoder not available in CI")
+
+@pytest.mark.skipif(
+    not _REEDSOLO_AVAILABLE,
+    reason="External reedsolo decoder is not installed",
+)
 def test_error_correction_with_reedsolo():
-    # This test is kept for reference; it requires the ``reedsolo`` package.
-    import reedsolo  # type: ignore
+    # Requires ``reedsolo`` with CCSDS parameters configured in decode().
     data = os.urandom(RS_K)
     enc = encode(data)
     # Introduce up to 16 symbol errors (t = RS_SYMS//2)

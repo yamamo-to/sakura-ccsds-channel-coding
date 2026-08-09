@@ -13,6 +13,7 @@ from ccsds_codec.turbo import (
     _depuncture,
 )
 
+
 def test_interleaver_is_permutation():
     bits = list(range(50))
     inter = ccsds_interleaver(bits)
@@ -21,10 +22,12 @@ def test_interleaver_is_permutation():
     # No duplicates
     assert len(set(inter)) == len(bits)
 
+
 def test_deinterleaver_is_inverse():
     bits = list(range(73))  # arbitrary length
     assert ccsds_deinterleaver(ccsds_interleaver(bits)) == bits
     assert ccsds_interleaver(ccsds_deinterleaver(bits)) == bits
+
 
 @pytest.mark.parametrize("L", [1, 2, 3, 4, 5, 10, 27, 50, 123])
 def test_payload_len_from_punctured_roundtrip(L):
@@ -34,15 +37,17 @@ def test_payload_len_from_punctured_roundtrip(L):
     recovered = payload_len_from_punctured(len(punctured))
     assert recovered == L
 
+
 def test_depuncture_reconstructs_full_length():
     L = 17
     full = list(range(3 * L))
     punct = _puncture(full)
     recon = _depuncture(punct)
-    # The reconstructed stream should have same systematic and parity1 parts; parity2 bits for odd indices are zero
+    # The reconstructed stream should have the same systematic and parity1
+    # parts; parity2 bits for odd indices are zero.
     assert recon[:L] == full[:L]                     # systematic
-    assert recon[L:2*L] == full[L:2*L]               # parity1
+    assert recon[L:2 * L] == full[L:2 * L]               # parity1
     # parity2 odd positions should be zero
     for i in range(L):
-        expected = full[2*L + i] if i % 2 == 0 else 0
-        assert recon[2*L + i] == expected
+        expected = full[2 * L + i] if i % 2 == 0 else 0
+        assert recon[2 * L + i] == expected

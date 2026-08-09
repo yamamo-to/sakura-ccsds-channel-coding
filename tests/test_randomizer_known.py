@@ -1,6 +1,5 @@
 """Known-vector tests for the CCSDS pseudo-randomizer (CCSDS 131.0-B-4/5 sec. 10.4)."""
 
-import pytest
 from ccsds_codec.randomizer import scramble, descramble
 from ccsds_codec.utils import bytes_to_bits, bits_to_bytes
 

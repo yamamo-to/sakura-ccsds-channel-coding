@@ -1,15 +1,15 @@
 """GF(2^8) arithmetic for the CCSDS Reed‑Solomon code.
 
-Implements a standard GF(2^8) field using the conventional primitive
-polynomial ``0x11d`` (the same defaults as the ``reedsolo`` package).
+Implements GF(2^8) using the CCSDS 131.0‑B‑4 field generator polynomial
+``p(x) = x^8 + x^7 + x^2 + x + 1`` (``0x187``).
 """
 
 from __future__ import annotations
 
 from typing import List
 
-# Primitive polynomial for the field (same as reedsolo defaults).
-PRIMITIVE_POLY = 0x11D  # x^8 + x^4 + x^3 + x^2 + 1
+# Field generator polynomial for CCSDS 131.0-B-4 Reed-Solomon.
+PRIMITIVE_POLY = 0x187  # x^8 + x^7 + x^2 + x + 1
 GF_SIZE = 256
 EXP_TABLE: List[int] = [0] * (GF_SIZE * 2)
 LOG_TABLE: List[int] = [0] * GF_SIZE

@@ -1,16 +1,14 @@
-'''Reed‑Solomon encoder/decoder for the CCSDS (255,223) code.
+"""Reed‑Solomon encoder/decoder for the CCSDS (255,223) code.
 
-Implements a standard RS(255,223) code over GF(2⁸) using the conventional
-primitive polynomial ``0x11d`` (the same defaults as the ``reedsolo``
-package).  This matches the external reference implementation used in the
-compatibility tests.
+Implements RS(255,223) over GF(2⁸) using the CCSDS 131.0‑B‑4 parameters:
+field generator ``p(x) = x^8 + x^7 + x^2 + x + 1`` and code generator
+``g(x) = ∏_{j=112}^{143} (x - α^j)``.
 
 When the optional ``reedsolo`` package is available the decoder defers to it
 so that full error‑correction works.  If ``reedsolo`` is not installed a
 fallback decoder is used which simply verifies the parity and raises a
-``ValueError`` on any discrepancy – this behaviour satisfies the fallback
-tests that expect a ``ValueError`` when a block is corrupted.
-'''  # noqa: D400
+``ValueError`` on any discrepancy.
+"""  # noqa: D400
 
 from __future__ import annotations
 
@@ -27,20 +25,19 @@ RS_SYMS = RS_N - RS_K  # 32 parity symbols
 
 
 def _generate_generator() -> List[int]:
-    """Generate the RS generator polynomial.
+    """Generate the CCSDS RS generator polynomial.
 
-    The polynomial is ``g(x) = ∏_{i=0}^{RS_SYMS-1} (x - α^i)`` where ``α`` is the
-    primitive element (2) of the field.  This is the same construction used by
-    ``reedsolo.RSCodec`` with the default parameters.
+    ``g(x) = ∏_{j=112}^{143} (x - α^j)`` where ``α`` is the primitive element
+    (2) of GF(2⁸) defined by ``p(x) = x^8 + x^7 + x^2 + x + 1``.
     """
     g = [1]
+    fcr = 112  # first consecutive root (CCSDS 131.0-B-4)
     for i in range(RS_SYMS):
-        term = [1, gf_pow(2, i)]  # (x - α^i) -> subtraction = addition in GF(2^8)
+        # (x - α^(i+fcr)); subtraction equals addition in GF(2^8)
+        term = [1, gf_pow(2, i + fcr)]
         new_g = [0] * (len(g) + 1)
         for j in range(len(g)):
-            # multiply by x
             new_g[j] ^= g[j]
-            # multiply by -α^i (same as +α^i)
             new_g[j + 1] ^= gf_mul(g[j], term[1])
         g = new_g
     return g
@@ -56,9 +53,8 @@ GENERATOR = _generate_generator()
 def encode_block(data_block: bytes) -> bytes:
     """Encode a single RS_K‑byte block and return RS_N bytes.
 
-    The algorithm uses a linear‑feedback shift register driven by the generator
-    polynomial.  The implementation follows the classic approach used by many
-    textbook examples and matches the behaviour of ``reedsolo``.
+    The algorithm uses a linear‑feedback shift register driven by the CCSDS
+    generator polynomial.
     """
     if len(data_block) != RS_K:
         raise ValueError(f"data block must be exactly {RS_K} bytes")
@@ -118,8 +114,8 @@ def decode_block(encoded_block: bytes) -> bytes:
     try:
         import reedsolo  # type: ignore
 
-        # Use reedsolo with matching parameters (nsym, nsize, fcr, prim).
-        rs_ext = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=0, prim=PRIMITIVE_POLY)
+        # Use reedsolo with CCSDS parameters (nsym, nsize, fcr, prim).
+        rs_ext = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=112, prim=PRIMITIVE_POLY)
         decoded = rs_ext.decode(encoded_block)
         # reedsolo.decode returns a tuple (data, full_block, errata_positions).
         if isinstance(decoded, tuple):

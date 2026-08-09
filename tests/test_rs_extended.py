@@ -1,15 +1,16 @@
 """Extended tests for Reed‑Solomon encoder/decoder"""
 
 import os
-import random
 import pytest
 from ccsds_codec.rs import encode, decode, RS_K, RS_N, GENERATOR
+
 
 def test_generator_properties():
     # Generator polynomial degree must be RS_SYMS (32) → length 33
     assert len(GENERATOR) == 33
     # First coefficient should be 1 (monic polynomial)
     assert GENERATOR[0] == 1
+
 
 @pytest.mark.parametrize("size", [1, 10, RS_K, RS_K + 5, RS_K * 2])
 def test_encode_decode_various_lengths(size):
@@ -20,6 +21,7 @@ def test_encode_decode_various_lengths(size):
     dec = decode(enc)
     # decode strips parity; original data may have been padded to RS_K
     assert dec[: len(data)] == data
+
 
 def test_decode_without_errors_fallback():
     # Force the fallback path by ensuring reedsolo is not importable

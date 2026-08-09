@@ -1,9 +1,7 @@
 """Tests for internal Reed‑Solomon implementation (fallback path)."""
 
 import builtins
-import importlib
 import sys
-from types import ModuleType
 
 import pytest
 
@@ -111,10 +109,12 @@ def test_encode_fallback_and_decode_fallback(monkeypatch):
     # Ensure padding zeros are present for the remainder of the block
     assert decoded[len(data) :] == b"\x00" * (rs.RS_K - len(data))
 
+
 def test_internal_decode_corrects_errors(monkeypatch):
     # Ensure fallback path (no external reedsolo) for the internal decoder
     monkeypatch.setitem(sys.modules, "reedsolo", None)
-    import os, random
+    import os
+    import random
     random.seed(0)
     # Create a data block of RS_K bytes
     data_block = os.urandom(rs.RS_K)
@@ -124,13 +124,16 @@ def test_internal_decode_corrects_errors(monkeypatch):
     corrupted = bytearray(encoded)
     pos = random.randrange(rs.RS_N)
     corrupted[pos] ^= 0xFF  # invert all bits at that position
-    # Decoding a corrupted block should raise ValueError (error correction not fully reliable in fallback)
+    # Decoding a corrupted block should raise ValueError
+    # (error correction is not fully reliable in the fallback path).
     with pytest.raises(ValueError):
         rs._rs_decode_block(bytes(corrupted))
 
+
 def test_internal_decode_too_many_errors(monkeypatch):
     monkeypatch.setitem(sys.modules, "reedsolo", None)
-    import os, random
+    import os
+    import random
     random.seed(1)
     data_block = os.urandom(rs.RS_K)
     encoded = rs._rs_encode_block(data_block)
@@ -143,4 +146,3 @@ def test_internal_decode_too_many_errors(monkeypatch):
     # Decoding should raise ValueError due to excessive errors
     with pytest.raises(ValueError):
         rs._rs_decode_block(bytes(corrupted))
-
