@@ -12,7 +12,7 @@ directly from ``ccsds_codec``.  The implementation is layered as:
 """
 
 from .api import ConvCodec, RSCodec, Randomizer, TurboCodec
-from .config import ConvConfig, ConvRate, TurboConfig, TurboRate
+from .config import ConvConfig, ConvRate, TurboConfig, TurboRate, RSConfig
 from .core.bits import bits_to_bytes, bits_to_bytes_strict, bytes_to_bits
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "ConvRate",
     "TurboConfig",
     "TurboRate",
+    "RSConfig",
     "bits_to_bytes",
     "bits_to_bytes_strict",
     "bytes_to_bits",

@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-__all__ = ["ConvRate", "TurboRate", "ConvConfig", "TurboConfig"]
+__all__ = ["ConvRate", "TurboRate", "ConvConfig", "TurboConfig", "RSConfig"]
 
 
 class ConvRate(StrEnum):
@@ -58,3 +58,18 @@ class TurboConfig:
 
     rate: TurboRate = TurboRate.R1_3
     iterations: int = 5
+
+
+@dataclass(frozen=True)
+class RSConfig:
+    """Configuration for Reed‑Solomon interleaving.
+
+    Attributes:
+        depth: Interleaving depth (default 1).
+    """
+
+    depth: int = 1
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.depth <= 5:
+            raise ValueError(f"depth must be in 1..5, got {self.depth}")
