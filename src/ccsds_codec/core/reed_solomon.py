@@ -196,12 +196,16 @@ def decode(encoded: bytes, depth: int = 1) -> bytes:
         # split interleaved bytes into individual encoded blocks
         blocks = _rs_split_stride(group, depth)
         decoded_blocks = []
-        for block in blocks:
+        for block_idx, block in enumerate(blocks):
             try:
                 decoded_blocks.append(decode_block(block))
-            except ValueError:
-                # Fallback: use the data portion of the block.
-                decoded_blocks.append(block[:RS_K])
+            except ValueError as e:
+                # Provide context about which block failed.
+                group_idx = i // group_size
+                # Raise with context about block and group indices.
+                raise ValueError(
+                    f"Failed to decode block {block_idx} in group {group_idx}: {e}"
+                ) from e
         # merge decoded data blocks to reconstruct original (possibly padded) data
         out.extend(_rs_merge_column_major(decoded_blocks))
     return bytes(out)

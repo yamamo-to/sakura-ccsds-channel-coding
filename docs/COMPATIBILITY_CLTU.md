@@ -1,28 +1,34 @@
 # CCSDS CLTU 互換性チェック結果 (Markdown)
 
 ## 1. 実装概要
-| コンポーネント | 内容 |
-|----------------|------|
-| **SYNC マーカー** | `0x1A CFFC 1D`（4 バイト）を固定で付与。 |
-| **ランダマイザ** | `ccsds_codec.randomizer` の CCSDS scrambler（多項式 `x⁷ + x⁶ + 1`、シード 0x7F）を再利用。 |
-| **BCH エンコード** | デフォルトは **BCH(127,113)**（t = 2、14 ビット＝2 バイト冗長）。
-  * `bchlib` がインストールされていれば本格的なエラー訂正が有効。
-  * 未インストール時は **スタブ**（2 バイト 0 埋め）を使用し、ラウンドトリップは必ず成功。
-| **CLTU フォーマット** | `SYNC | RANDOMIZED_TC_FRAME | BCH_PARITY(2 bytes)` |
-| **エンコード API** | `encode(tc_frame: bytes) -> bytes` |
-| **デコード API** | `decode(cltu: bytes) -> bytes`（不正や不可訂正は `ValueError`） |
+このリポジトリは単一の `ccsds_codec.cltu` モジュールを提供していません。CLTU の機能は以下のコンポーネントを組み合わせて実現できます:
 
+- **SYNC マーカー**: `0x1A CFFC 1D`（4 バイト）をヘッダーとして手動で付与可能。
+- **ランダマイザ**: `ccsds_codec.randomizer` の CCSDS scrambler（多項式 `x⁷ + x⁶ + 1`、シード 0x7F）。
+- **Reed‑Solomon エンコード/デコード**: `ccsds_codec.rs` が RS(255,223) とインタリーブを提供。
+- **畳み込み符号**: `ccsds_codec.conv` が CCSDS 規格の CONV エンコーダ/デコーダを提供。
+
+これらを組み合わせて `SYNC | RANDOMIZED_TC_FRAME | RS_PARITY` の形式で CLTU 相当のフレームを構築できます。BCH エラー訂正はオプションの外部ライブラリ `bchlib` が無い限りスタブ実装となります。
 ## 2. 互換性チェック手順
 ```bash
 # 1️⃣ ラウンドトリップ (100 回ランダム TC フレーム)
 python3 - <<'PY'
 import sys, random
 sys.path.append('/home/yamamo-to/ccsds-codec')
-from ccsds_codec.cltu import encode, decode
+from ccsds_codec.randomizer import scramble, descramble
+from ccsds_codec.conv import encode as conv_encode, decode as conv_decode
+from ccsds_codec.rs import encode as rs_encode, decode as rs_decode
 for _ in range(100):
     payload = bytes([random.randint(0,255) for _ in range(24)])
-    cltu = encode(payload)
-    assert decode(cltu) == payload
+    # Randomize, Convolutional encode, Reed‑Solomon encode (simplified CLTU chain)
+    rnd = scramble(list(payload))
+    conv = conv_encode(rnd)
+    cltu = rs_encode(bytes(conv))
+    # Decode chain
+    dec_rs = rs_decode(cltu)
+    dec_conv = conv_decode(list(dec_rs))
+    recovered = bytes(descramble(dec_conv))
+    assert recovered == payload
 print('✅ round‑trip OK')
 PY
 
@@ -30,19 +36,25 @@ PY
 python3 - <<'PY'
 import sys, random
 sys.path.append('/home/yamamo-to/ccsds-codec')
-from ccsds_codec.cltu import encode, decode
+# BCH エラー訂正は本リポジトリでは実装されていません。
+# 代わりに RS エンコード/デコードチェーンでエラー訂正なしのラウンドトリップを確認できます。
 payload = b'HelloWorld' * 3
-cltu = encode(payload)
-# Flip a random data bit (skip SYNC)
+# Encode using the same chain as above
+rnd = scramble(list(payload))
+conv = conv_encode(rnd)
+cltu = rs_encode(bytes(conv))
+# Introduce a single-bit error in the payload region (skip SYNC simulated)
 br = bytearray(cltu)
-idx = random.randrange(4, len(br))
+idx = random.randrange(len(br))
 br[idx] ^= 0x01
-try:
-    rec = decode(bytes(br))
-    assert rec == payload
-    print('✅ 1‑bit error corrected')
-except ValueError:
-    print('⚠️ 1‑bit error NOT corrected – BCH library missing')
+# Decode chain
+dec_rs = rs_decode(bytes(br))
+dec_conv = conv_decode(list(dec_rs))
+recovered = bytes(descramble(dec_conv))
+if recovered == payload:
+    print('✅ 1‑bit error (simulated) passed through chain')
+else:
+    print('⚠️ 1‑bit error not corrected – BCH ライブラリ未実装')
 PY
 ```
 ### 結果（ローカル実行）

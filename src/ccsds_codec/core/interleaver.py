@@ -5,8 +5,10 @@ construction of CCSDS 131.0-B-4 §6.3g (Annex H of the Turbo coding
 recommendation): with ``k1 = 8`` and ``k2 = K / 8`` the output position ``j``
 (0-based) is fed by input position ``π(j)``, i.e. ``interleaved[j] = bits[π(j)]``.
 
-The permutation is golden-vector verified against the gr-ccsds-1 / SatDump
-reference implementation for every CCSDS block length.
+The permutation for K = 1784 is golden-vector verified against the CCSDS
+reference interleaver table ``ccsdsSize1784.txt`` from the
+``mdmoctezuma/CCSDSTurboCode`` repository (see
+``tests/test_turbo_golden.py``).
 """
 
 from __future__ import annotations

@@ -85,7 +85,14 @@ def _conv(mode: str, rate: str | None, parser: argparse.ArgumentParser) -> None:
 def _rs(mode: str, depth: int) -> None:
     """Handle the rs-enc / rs-dec modes (bytes in, bytes out)."""
     data = _read_bytes()
-    _write_bytes(rs_encode(data, depth=depth) if mode == "rs-enc" else rs_decode(data, depth=depth))
+    if mode == "rs-enc":
+        _write_bytes(rs_encode(data, depth=depth))
+        return
+    try:
+        _write_bytes(rs_decode(data, depth=depth))
+    except ValueError as e:
+        print(f"RS decode error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _turbo(mode: str, rate: str | None, parser: argparse.ArgumentParser) -> None:

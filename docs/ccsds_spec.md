@@ -11,8 +11,8 @@
 - **Constraint Length ($K$):** 7
 - **Code Rate:** $R = 1/2$
 - **Generator Polynomials:**
-  - $G_1 = 121_8$ (1010001_2) (Inverting)
-  - $G_2 = 133_8$ (1011011_2) (Non-inverting)
+  - $G_1 = 171_8$ (1111001_2) (Non-inverting)
+  - $G_2 = 133_8$ (1011011_2) (Inverted on the channel)
 - **Puncturing Schemes:** Support $2/3, 3/4, 5/6, 7/8$ if enabled.
 
 ## 3. Turbo Code

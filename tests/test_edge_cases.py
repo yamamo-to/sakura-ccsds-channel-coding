@@ -3,6 +3,8 @@
 import os
 import random
 
+import pytest
+
 from ccsds_codec.utils import bits_to_bytes, bytes_to_bits
 from ccsds_codec.conv import encode as conv_encode, viterbi_decode as conv_decode
 from ccsds_codec.rs import encode as rs_encode, decode as rs_decode, RS_K
@@ -46,20 +48,15 @@ def test_rs_decode_with_correctable_errors():
 
 
 def test_rs_decode_exceeds_error_capacity():
-    """Introduce more errors than the RS code can correct and expect a failure.
-
-    The external ``reedsolo`` decoder raises ``reedsolo.ReedSolomonError`` when
-    uncorrectable.  We accept any exception type here.
-    """
+    """Introduce more errors than the RS code can correct and expect a failure."""
     data = os.urandom(RS_K)
     encoded = rs_encode(data)
     corrupted = bytearray(encoded)
     # Introduce 30 errors (> 16)
     for i in range(30):
         corrupted[i] ^= 0xFF
-    # Decoding with too many errors should not produce the original data
-    decoded = rs_decode(bytes(corrupted))
-    assert decoded[: len(data)] != data
+    with pytest.raises(ValueError):
+        rs_decode(bytes(corrupted))
 
 
 def test_conv_codec_rate_passthrough():

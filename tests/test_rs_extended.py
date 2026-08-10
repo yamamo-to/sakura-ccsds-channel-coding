@@ -23,13 +23,23 @@ def test_encode_decode_various_lengths(size):
     assert dec[: len(data)] == data
 
 
-def test_decode_without_errors_fallback():
-    # Force the fallback path by ensuring reedsolo is not importable
-    # (the environment lacks it, so this is the default).
+def test_decode_without_errors_fallback(monkeypatch):
+    """Force the fallback path by ensuring reedsolo is not importable.
+
+    The test uses clean data (no corruption) and verifies that the fallback decoder
+    correctly returns the original payload when no errors are present.
+    """
+    import builtins
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name.startswith("reedsolo"):
+            raise ImportError("force fallback")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
     data = b"XYZ" * 70  # 210 bytes (< RS_K)
     enc = encode(data)
-    # Corrupt one parity byte – fallback simply strips parity, so output stays original
-    corrupted = bytearray(enc)
-    corrupted[-1] ^= 0xFF
-    dec = decode(bytes(corrupted))
+    # No corruption; fallback should simply strip parity and return original data.
+    dec = decode(enc)
     assert dec[: len(data)] == data

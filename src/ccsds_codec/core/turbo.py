@@ -31,10 +31,13 @@ Implements the Turbo code of CCSDS 131.0-B-4 §3 / §5 / §6 with the
   ``np.logaddexp`` (no exp overflow/underflow).  LLR convention: positive
   value = likelihood of bit 0, negative = likelihood of bit 1 (AGENTS.md §2).
   The final hard decision uses the de-interleaved APP of the lower
-  constituent (golden-verified against the gr-ccsds-1 / SatDump reference).
+  constituent.
 
-The encoder output is bit-exact against the CCSDS golden vectors
-(K = 1784, 3568; all four rates; ``tests/test_turbo_golden.py``).
+The interleaver permutation is golden-vector verified for K = 1784 against
+the CCSDS reference table from ``mdmoctezuma/CCSDSTurboCode``
+(``tests/test_turbo_golden.py``).  Full encoder/decoder output vectors for
+all block lengths and rates are not yet covered by external-reference tests
+(see docs/VERIFICATION_MATRIX.md, risk G-4).
 """
 
 from __future__ import annotations

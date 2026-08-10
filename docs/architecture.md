@@ -1,22 +1,15 @@
 # Software Architecture & Module Interface
 
 ## Module Overview
-- `src/ccsds/rs.py`: RS Encoder & Decoder (Berlekamp-Massey or Welch-Berlekamp algorithm)
-- `src/ccsds/conv.py`: Convolutional Encoder & Viterbi Decoder (Hard/Soft-decision)
-- `src/ccsds/turbo.py`: Turbo Encoder & BCJR (MAP) Decoder
-- `src/ccsds/pipeline.py`: Concatenated Encoder/Decoder Pipeline (RS + CONV)
+- `src/ccsds_codec/core/`: pure algorithm modules (`bits`, `galois`, `interleaver`, `convolutional`, `reed_solomon`, `turbo`, `randomizer`).
+- `src/ccsds_codec/api.py`: high‑level codec classes (`RSCodec`, `ConvCodec`, `TurboCodec`, `Randomizer`).
+- `src/ccsds_codec/config.py`: configuration dataclasses for each codec.
+- `src/ccsds_codec/cli.py`: unified command‑line interface (`python -m ccsds_codec`).
+- `src/ccsds_codec/__main__.py`: entry point for the module.
+- Backwards‑compatible shim modules `conv.py`, `rs.py`, `turbo.py`, `randomizer.py`, `utils.py` exposing the core functions.
 
-## Common Interface Standard
-All encoders and decoders must inherit from abstract base classes in `src/ccsds/base.py`:
+## Common Interface
 
-```python
-class BaseCodec(ABC):
-    @abstractmethod
-    def encode(self, data: np.ndarray) -> np.ndarray:
-        """Encodes binary stream (0s and 1s) or byte stream."""
-        pass
+High‑level API classes in `api.py` implement `encode` / `decode` methods for each codec. There is no abstract `BaseCodec` in this project; users interact via the concrete classes (`RSCodec`, `ConvCodec`, `TurboCodec`, `Randomizer`) or the functional core modules under `core/`.
 
-    @abstractmethod
-    def decode(self, rx_symbols: np.ndarray) -> np.ndarray:
-        """Decodes received symbols (supports float LLR for soft-decision)."""
-        pass
+

@@ -2,8 +2,8 @@
 
 **対象規格**: CCSDS 131.0-B-4 (TM Synchronization and Channel Coding)
 **対象実装**: `ccsds-codec` (Python 3.11+)
-**検証日**: 2026-08-10
-**検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 189 passed
+**検証日**: 2026-08-10（初版 81f5283 時点では pytest 189 passed → 修正適用後 228 passed に更新）
+**検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 228 passed
 
 ---
 
@@ -28,8 +28,8 @@
 | RS-02 | §4.1 | 生成多項式 `g(x)=∏_{j=112}^{143}(x−α^j)` (32 パリティ) | `core/reed_solomon.py:22-24` (`RS_N/RS_K/RS_SYMS`), generator 構築 | `test_rs.py::test_generator_length`, `test_rs_properties.py::test_generator_properties`, `test_rs_internal.py::test_generate_generator_length` | ✅ 準拠 | モニック・次数 32 を検証 |
 | RS-03 | §4.1 | 符号パラメータ RS(255,223)、32 シンボル | `core/reed_solomon.py:22-24` | `test_rs.py::test_encode_known_vector` (golden parity), `test_rs_properties.py::test_encode_block_length` | ✅ 準拠 | reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) と parity 一致 |
 | RS-04 | §4.3.5 Fig 4-2 | ブロックインタリーブ深さ I=1..5 | `core/reed_solomon.py` `encode`/`decode` (depth 引数, stride 分割) | `test_rs_interleave.py::test_interleaving_structure`, `test_rs_interleave.py::test_roundtrip`, `test_rs_config.py::test_rs_codec_different_depths` | ✅ 準拠 | 列優先配置を構造テストで検証 |
-| RS-05 | §4.2 | 誤り訂正能力 t=16 | `core/reed_solomon.py:154` (`reedsolo.RSCodec(32, nsize=255, fcr=112, prim=0x187)`) | `test_rs_properties.py::test_error_correction_with_reedsolo`, `test_edge_cases.py::test_rs_decode_with_correctable_errors` | ⚠️ 部分的 | **reedsolo 非搭載時は訂正なし**（パリティ照合のみのフォールバック）。リスク項目 G-1 |
-| RS-06 | §4.2 | 不可訂正エラーの検出 | `core/reed_solomon.py:127-140` (`_fallback_decode_block`), `:164-207` (`decode`) | `test_rs_internal.py::test_internal_decode_too_many_errors`, `test_edge_cases.py::test_rs_decode_exceeds_error_capacity`, `test_rs_extended.py::test_decode_without_errors_fallback` | ⚠️ 部分的 | **`decode()` は不可訂正ブロックを検出するとデータ部を黙って返す**（`block[:RS_K]` フォールバック、行 204）。リスク項目 G-2 |
+| RS-05 | §4.2 | 誤り訂正能力 t=16 | `core/reed_solomon.py:154` (`reedsolo.RSCodec(32, nsize=255, fcr=112, prim=0x187)`) | `test_rs_properties.py::test_error_correction_with_reedsolo`, `test_edge_cases.py::test_rs_decode_with_correctable_errors` | ✅ 準拠 | reedsolo を dev 依存 (`pyproject.toml`) に追加済み → CI でも訂正能力テストが通る。ランタイムの reedsolo 非搭載時のみパリティ照合フォールバック（旧リスク G-1 は軽減・G-6 解消） |
+| RS-06 | §4.2 | 不可訂正エラーの検出 | `core/reed_solomon.py:127-140` (`_fallback_decode_block`), `:164-207` (`decode`) | `test_rs_internal.py::test_internal_decode_too_many_errors`, `test_edge_cases.py::test_rs_decode_exceeds_error_capacity`, `test_rs_extended.py::test_decode_without_errors_fallback` | ✅ 準拠 | **サイレント破損を修正済み**: `decode()` は不可訂正ブロックで `ValueError`（グループ/ブロック番号付き）を送出。CLI (`cli.py::_rs`) は stderr 出力 + exit(1)。リスク G-2 解消 |
 | RS-07 | §4.1 (注記) | Dual-basis 表現変換 | なし（従来表現のみ） | テストなし | ❓ 未検証 | AGENTS.md で「オプション／設定可能」とされる範囲外。対応はスコープ外として明記 |
 
 ---
@@ -54,13 +54,13 @@
 |---|---|---|---|---|---|---|
 | TURBO-01 | §3.3.1 | RSC 構成コード、K=5、フィードバック g0=23₈ / フォワード g1=33₈ | `core/turbo.py:70-73` (`GEN_SYS = 0x13`, `GEN = 0x1B`, `GEN2 = 0x15`, `GEN3 = 0x1F`) | `test_turbo_rate16.py::test_bcjr_kernel_clean_channel_decodes_zeros`, `test_turbo_rate16.py::test_rate16_roundtrip` | ✅ 準拠 | 定数は §3.3.1 の 23₈/33₈ に対応（テストは小ブロックでのみ検証） |
 | TURBO-02 | §3.4.1 | 基本レート 1/2, 1/3, 1/4, 1/6 | `core/turbo.py:83` (`NCOMP`) | `test_turbo_properties.py::test_stream_length_formula`, `test_turbo_and_randomizer.py::test_turbo_punctured_roundtrip`, `test_turbo_rate16.py::test_rate16_roundtrip` | ✅ 準拠 | ストリーム長式 `NCOMP*(K+4)` を全レートで検証 |
-| TURBO-03 | §3.1.1 | 情報ブロック長 1784/3568/7136/8920/16384 | `core/turbo.py:100` (`STANDARD_K`) | `test_turbo_properties.py::test_rate_autodetect_is_unique_and_correct` | ⚠️ 部分的 | **レート自動判別のみ検証。標準長での実符復号テスト不在**（全テスト K≤200）。リスク項目 G-3 |
+| TURBO-03 | §3.1.1 | 情報ブロック長 1784/3568/7136/8920/16384 | `core/turbo.py:100` (`STANDARD_K`) | `test_turbo_properties.py::test_rate_autodetect_is_unique_and_correct`, `test_turbo_standard_lengths.py::test_encode_decode_roundtrip_standard_lengths` (全 5 長 × rate 1/3, 1/6), `test_turbo_standard_lengths.py::test_detect_rate_k_for_standard_lengths` (全 5 長 × 4 レート) | ✅ 準拠 | **標準長での実符 roundtrip テストを追加済み**（rate 1/3・1/6、全 5 長）。リスク G-3 解消 |
 | TURBO-04 | §3.2.3 | 終端（K−1=4 テール、状態 0 リセット） | `core/turbo.py:76` (`TAIL = 4`) | `test_turbo_properties.py::test_stream_length_formula` | ✅ 準拠 | 長さ公式で間接検証 |
-| TURBO-05 | §6.3g | QPP インタリーバ（Quadratic-Permutation） | `core/interleaver.py` (`ccsds_perm` / `ccsds_interleaver` / `ccsds_deinterleaver`) | `test_turbo_extended.py::test_interleaver_is_bijective_and_inverse`, `test_turbo_properties.py::test_interleaver_is_permutation`, `test_turbo_properties.py::test_deinterleaver_is_inverse` | ✅ 準拠 | 全単射・逆元を検証。**外部参照 (gr-ccsds-1/SatDump) との一致テスト不在**。リスク項目 G-4 |
+| TURBO-05 | §6.3g | QPP インタリーバ（Quadratic-Permutation） | `core/interleaver.py` (`ccsds_perm` / `ccsds_interleaver` / `ccsds_deinterleaver`) | `test_turbo_extended.py::test_interleaver_is_bijective_and_inverse`, `test_turbo_properties.py::test_interleaver_is_permutation`, `test_turbo_properties.py::test_deinterleaver_is_inverse`, `test_turbo_golden.py::test_ccsds_perm_1784_matches_reference` | ✅ 準拠 | 全単射・逆元 + **K=1784 は外部参照ゴールデンベクトル照合済み**（`tests/data/ccsdsSize1784.txt`、mdmoctezuma/CCSDSTurboCode 由来、1784 点完全一致）。他長の外部照合は未実施（リスク G-4 一部残） |
 | TURBO-06 | §3.4 (Annex) | 反復 Log-MAP / Max-Log-MAP 復号 | `core/turbo.py:215` (`_build_trellis`), `:256` (`_bcjr_kernel`), `_turbo_decode_core` | `test_turbo.py::test_unpunctured_roundtrip`, `test_turbo.py::test_punctured_roundtrip`, `test_turbo_extended.py::test_decode_consistency_across_iterations` | ✅ 準拠 | |
 | TURBO-07 | 数値安定性 | 対数領域でアンダーフロー防止 | `core/turbo.py:256` (`_bcjr_kernel`) | `test_turbo_rate16.py::test_bcjr_kernel_channel_matrix_shapes`, `test_turbo_rate16.py::test_bcjr_kernel_clean_channel_decodes_zeros` | ✅ 準拠 | 有限 LLR・チャネル行列形状を検証 |
 | TURBO-08 | §3.1.1 | ブロック長からのレート自動判別 | `core/turbo.py` (`_detect_rate_k`) | `test_turbo_properties.py::test_rate_autodetect_is_unique_and_correct`, `test_turbo_properties.py::test_rate_autodetect_rejects_unknown_length` | ✅ 準拠 | |
-| TURBO-09 | Annex A | 付録の基準テストベクトル | なし | テストなし | ❓ 未検証 | 付録ベクトルとの照合テスト不在。リスク項目 G-4 |
+| TURBO-09 | Annex A | 付録の基準テストベクトル | なし | `test_turbo_golden.py::test_ccsds_perm_1784_matches_reference` (K=1784 インタリーバのみ) | ❓ 未検証 | 付録の符号語（エンコード出力）ベクトルとの照合テストは未実施。インタリーバ K=1784 の外部照合は TURBO-05 で実施済み（リスク G-4 一部残） |
 | TURBO-10 | §3.4 | 最大反復回数（規格例: 10 回） | デフォルト 5 回、上限未設定 | `test_turbo_extended.py::test_decode_consistency_across_iterations` | ⚠️ 部分的 | 反復回数は設定可能だが上限強制なし |
 
 ---
@@ -89,7 +89,7 @@
 
 | ID | 要求 | 要求内容 | 実装箇所 | 検証テスト | ステータス | 備考・リスク |
 |---|---|---|---|---|---|---|
-| PERF-01 | AGENTS.md §3 (Tester) | AWGN 上 Monte-Carlo BER/FER | なし | テストなし | ✗ 非準拠 | **BER/FER シミュレーション実装なし**。README の「golden vectors, BER/FER sims」記述と乖離。リスク項目 G-5 |
+| PERF-01 | AGENTS.md §3 (Tester) | AWGN 上 Monte-Carlo BER/FER | `tests/test_ber_fer_simulation.py` (`simulate_conv` / `simulate_turbo`) | `test_ber_fer_simulation.py::test_conv_ber_fer_monotonic[500]`, `test_ber_fer_simulation.py::test_turbo_ber_fer_monotonic[200]` | ✅ 準拠 | **BER/FER シミュレーションを追加済み**（AWGN・BPSK、Eb/N0 に対する BER/FER 単調性を検証）。リスク G-5 解消 |
 | PERF-02 | AGENTS.md §4.2 | 計算コアの numba JIT | `core/convolutional.py` (Viterbi カーネル), `core/turbo.py:256` (`_bcjr_kernel`) | `test_turbo_perf.py::test_decode_performance` | ⚠️ 部分的 | 性能テストは 1 件のみ。numba 非搭載環境での動作は未検証 |
 
 ---
@@ -98,12 +98,12 @@
 
 | ID | 対象 | 問題内容 | ステータス | 備考 |
 |---|---|---|---|---|
-| CI-01 | `.github/workflows/ci.yml` | `pip install .[dev]` に reedsolo が含まれない → CI で `test_rs_decode_with_correctable_errors` 等が失敗する可能性 | ⚠️ リスク | ローカルでは reedsolo が import 可能なため 189 passed だが、クリーン環境の CI はフォールバック動作になり訂正能力テストが落ちる。リスク項目 G-6 |
-| DOC-01 | `docs/ccsds_spec.md` | CONV 生成多項式が `G1=121₈`（TC 方式）表記で、実装 `171₈/133₈` と矛盾 | ✗ 非準拠 | 実装は CCSDS 131.0-B-4 準拠で正しい。ドキュメント側の修正が必要 |
-| DOC-02 | `docs/COMPATIBILITY.md` | Turbo が「簡易デモ・非互換」と記載 → 実装は正式 RSC/QPP/Log-MAP に更新済み | ✗ 非準拠 | 陳腐化。リスク項目 G-7 |
-| DOC-03 | `docs/COMPATIBILITY_TURBO.md` | f1=17/f2=31 の旧インタリーバ記述が残存 | ✗ 非準拠 | 現行 QPP 実装と矛盾 |
-| DOC-04 | `docs/COMPATIBILITY_CLTU.md` | 存在しない `ccsds_codec.cltu` モジュールへの参照 | ✗ 非準拠 | モジュールは存在せず、参照先が無効 |
-| DOC-05 | `docs/architecture.md` | `src/ccsds/` レイアウト記述が現行 `src/ccsds_codec/` と不一致 | ✗ 非準拠 | 陳腐化 |
+| CI-01 | `.github/workflows/ci.yml` | `pip install .[dev]` に reedsolo が含まれない → CI で `test_rs_decode_with_correctable_errors` 等が失敗する可能性 | ✅ 解決 | **reedsolo を dev extras に追加済み** (`pyproject.toml`)。CI クリーン環境でも訂正能力テストが通る。リスク G-6 解消 |
+| DOC-01 | `docs/ccsds_spec.md` | CONV 生成多項式が `G1=121₈`（TC 方式）表記で、実装 `171₈/133₈` と矛盾 | ✅ 解決 | `G1=171₈ (non-inverting)` / `G2=133₈ (inverted on the channel)` に修正済み |
+| DOC-02 | `docs/COMPATIBILITY.md` | Turbo が「簡易デモ・非互換」と記載 → 実装は正式 RSC/QPP/Log-MAP に更新済み | ✅ 解決 | Turbo 行を「完全実装（RSC K=5, g0=23₈, g1=33₈, QPP, Log-MAP）」に更新し、コメント列も「準拠実装」に整合 |
+| DOC-03 | `docs/COMPATIBILITY_TURBO.md` | f1=17/f2=31 の旧インタリーバ記述が残存 | ✅ 解決 | QPP 記述 (k1=8, k2=K/8) に修正済み。さらに `decode_unpunctured` の「ハード決定 Viterbi」誤記も Log-MAP (BCJR) に修正 |
+| DOC-04 | `docs/COMPATIBILITY_CLTU.md` | 存在しない `ccsds_codec.cltu` モジュールへの参照 | ✅ 解決 | 実在モジュール構成に合わせて更新済み |
+| DOC-05 | `docs/architecture.md` | `src/ccsds/` レイアウト記述が現行 `src/ccsds_codec/` と不一致 | ✅ 解決 | `src/ccsds_codec/`（core/ + api.py + config.py + cli.py + shim）構成に更新済み |
 
 ---
 
@@ -111,35 +111,36 @@
 
 | カテゴリ | ✅ 準拠 | ⚠️ 部分的 | ✗ 非準拠 | ❓ 未検証 |
 |---|---|---|---|---|
-| Reed-Solomon | 4 | 2 | — | 1 |
+| Reed-Solomon | 6 | — | — | 1 |
 | Convolutional | 7 | — | — | — |
-| Turbo | 6 | 2 | — | 1 |
+| Turbo | 8 | 1 | — | 1 |
 | Randomizer | 4 | — | — | — |
 | 共通規約 | 2 | — | — | — |
-| 性能目標 | — | 1 | 1 | — |
-| CI・ドキュメント | — | 1 | 5 | — |
-| **合計** | **23** | **6** | **6** | **2** |
+| 性能目標 | 1 | 1 | — | — |
+| CI・ドキュメント | 6 | — | — | — |
+| **合計** | **34** | **2** | **0** | **2** |
 
 ---
 
-## 主要リスク（G-1..G-7）と推奨アクション
+## 主要リスク（G-1..G-7）と対応状況
 
-| ID | リスク | 深刻度 | 推奨アクション |
+| ID | リスク | 深刻度 | 対応状況 |
 |---|---|---|---|
-| G-1 | reedsolo 非搭載環境で RS 誤り訂正が無効（パリティ照合のみ） | 高 | reedsolo を必須依存化するか、純実装の訂正デコーダを追加 |
-| G-2 | `decode()` が不可訂正ブロックを検出してもデータ部を黙って返す（サイレント破損） | 高 | エラー送出 or 訂正失敗フラグ付き戻り値に変更（API 互換に注意） |
-| G-3 | Turbo 標準ブロック長 (1784..16384) での実符復号テスト不在 | 高 | 標準長での roundtrip / 誤り訂正テストを追加 |
-| G-4 | Turbo に外部参照ゴールデンベクトルテスト不在 | 中 | gr-ccsds-1 / SatDump のテストベクトルで照合 |
-| G-5 | BER/FER Monte-Carlo シミュレーション不在 | 中 | AWGN チャネルでの BER/FER テスト追加 |
-| G-6 | CI が reedsolo なしで実行され訂正テストが失敗する可能性 | 中 | CI に reedsolo を追加するか、非搭載時 skip |
-| G-7 | ドキュメント 5 件が現行実装と矛盾 | 低 | ドキュメント更新 |
+| G-1 | reedsolo 非搭載環境で RS 誤り訂正が無効（パリティ照合のみ） | 高 | **軽減済み** – reedsolo を dev 依存に追加。ランタイムで非搭載の場合のみパリティ照合フォールバックに縮退（純実装訂正デコーダは今後の課題） |
+| G-2 | `decode()` が不可訂正ブロックを検出してもデータ部を黙って返す（サイレント破損） | 高 | **解消** – `ValueError`（グループ/ブロック番号付き）を送出。CLI は stderr + exit(1)。テスト 3 件も新挙動に更新済み |
+| G-3 | Turbo 標準ブロック長 (1784..16384) での実符復号テスト不在 | 高 | **解消** – `test_turbo_standard_lengths.py` で全 5 長 × rate 1/3・1/6 の roundtrip + 全 5 長 × 4 レートの自動判別を検証 |
+| G-4 | Turbo に外部参照ゴールデンベクトルテスト不在 | 中 | **一部解消** – インタリーバ K=1784 を外部参照（mdmoctezuma/CCSDSTurboCode の ccsdsSize1784.txt）と照合（1784 点完全一致）。他長・エンコード出力の照合は未実施 |
+| G-5 | BER/FER Monte-Carlo シミュレーション不在 | 中 | **解消** – `test_ber_fer_simulation.py` で AWGN 上 conv/turbo の BER/FER 単調性を検証 |
+| G-6 | CI が reedsolo なしで実行され訂正テストが失敗する可能性 | 中 | **解消** – `pyproject.toml` dev extras に reedsolo 追加 |
+| G-7 | ドキュメント 5 件が現行実装と矛盾 | 低 | **解消** – 5 件すべて更新済み（+ 私が追加検証した 2 箇所の矛盾も修正） |
 
 ---
 
 ## 付記
 
 - 本マトリックスの `file:line` 引用は検証スクリプトにより実在確認済み。テスト名はテストディレクトリの実スキャンで確認済み。
-- 実行証跡: `pytest` 189 passed (2026-08-10, Python 3.14.4)。
+- 実行証跡: `pytest` 189 passed → **228 passed**（+39: Turbo 標準長 35・BER/FER 2・Turbo golden vector 2。2026-08-10, Python 3.14.4）。`ruff check src/ccsds_codec tests` も全通過。
 - RS のゴールデンベクトル (`test_rs.py::test_encode_known_vector`) は reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) との parity 一致で検証。
 - CONV のゴールデンベクトル (`test_conv_known.py`) は gr-satellites の GNU Radio 実装とのビット一致で検証。
+- Turbo インタリーバのゴールデンベクトル (`test_turbo_golden.py`) は mdmoctezuma/CCSDSTurboCode の `ccsdsSize1784.txt`（CCSDS 標準インタリーバ表）との K=1784 完全一致で検証（`tests/data/ccsdsSize1784.txt` としてコミット、sha256 c7094e37...）。
 - 本マトリックスは検証時点のスナップショット。実装変更時は更新すること。
