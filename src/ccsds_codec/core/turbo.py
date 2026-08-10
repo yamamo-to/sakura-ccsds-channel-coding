@@ -255,8 +255,10 @@ def _build_trellis(gens: list[int]) -> tuple[np.ndarray, np.ndarray, np.ndarray,
 # --- Log-MAP (BCJR) kernel (numba JIT, per AGENTS.md §4.2) -------------------
 
 
+# pragma: no cover on the def line below — coverage.py cannot trace into
+# numba-JIT bodies, so the whole kernel is excluded from coverage reports.
 @njit(fastmath=True, cache=True)
-def _bcjr_kernel(ch, la, ns, x, pred0, pred1, data_len):
+def _bcjr_kernel(ch, la, ns, x, pred0, pred1, data_len):  # pragma: no cover
     """Log‑MAP (BCJR) kernel for one recursive RSC constituent (numba JIT).
 
     Golden-verified formulation (see scratch_turbo_decoder.py):
