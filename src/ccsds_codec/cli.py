@@ -10,6 +10,8 @@ Usage examples::
     python -m ccsds_codec conv-dec [--rate 2/3] < out.bin > rec.bin
     python -m ccsds_codec rs-enc    < in.bin > out.bin
     python -m ccsds_codec rs-dec    < out.bin > rec.bin
+    python -m ccsds_codec rs-enc --depth 5 < in.bin > out.bin
+    python -m ccsds_codec rs-dec --depth 5 < out.bin > rec.bin
     python -m ccsds_codec turbo-enc [--rate 1/6] < in.bin > out.bin
     python -m ccsds_codec turbo-dec [--rate 1/6] < out.bin > rec.bin
     python -m ccsds_codec rand      < in.bin > scrambled.bin
@@ -80,10 +82,10 @@ def _conv(mode: str, rate: str | None, parser: argparse.ArgumentParser) -> None:
         _write_bits(decode_byte_padded(bits, rate))
 
 
-def _rs(mode: str) -> None:
+def _rs(mode: str, depth: int) -> None:
     """Handle the rs-enc / rs-dec modes (bytes in, bytes out)."""
     data = _read_bytes()
-    _write_bytes(rs_encode(data) if mode == "rs-enc" else rs_decode(data))
+    _write_bytes(rs_encode(data, depth=depth) if mode == "rs-enc" else rs_decode(data, depth=depth))
 
 
 def _turbo(mode: str, rate: str | None, parser: argparse.ArgumentParser) -> None:
@@ -119,13 +121,20 @@ def main() -> None:
         help="operation mode",
     )
     parser.add_argument("--rate", default=None, help="code rate (e.g. 7/8, 1/6)")
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=1,
+        choices=[1, 2, 3, 4, 5],
+        help="RS interleaving depth (default 1)",
+    )
     args = parser.parse_args()
 
     mode = args.mode
     if mode.startswith("conv"):
         _conv(mode, args.rate, parser)
     elif mode.startswith("rs"):
-        _rs(mode)
+        _rs(mode, args.depth)
     elif mode.startswith("turbo"):
         _turbo(mode, args.rate, parser)
     elif mode == "rand":

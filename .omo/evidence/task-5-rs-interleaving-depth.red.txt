@@ -1,0 +1,85 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+________________________ test_cli_rs_depth_roundtrip[1] ________________________
+
+depth = 1
+
+    @pytest.mark.parametrize("depth", [1, 2, 5])
+    def test_cli_rs_depth_roundtrip(depth):
+        payload = os.urandom(1000)
+        enc = subprocess.run(
+            [VENV_PY, "-m", "ccsds_codec", "rs-enc", "--depth", str(depth)],
+            input=payload,
+            capture_output=True,
+        )
+>       assert enc.returncode == 0, enc.stderr
+E       AssertionError: b'usage: ccsds_codec [-h] [--rate RATE]
+E                            {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}
+E         ccsds_codec: error: unrecognized arguments: --depth 1
+E         '
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['/home/yamamo-to/ccsds-codec/venv/bin/python', '-m', 'ccsds_codec', 'rs-enc', '--depth', '1'], ...  {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}\nccsds_codec: error: unrecognized arguments: --depth 1\n').returncode
+
+tests/test_rs_cli.py:14: AssertionError
+________________________ test_cli_rs_depth_roundtrip[2] ________________________
+
+depth = 2
+
+    @pytest.mark.parametrize("depth", [1, 2, 5])
+    def test_cli_rs_depth_roundtrip(depth):
+        payload = os.urandom(1000)
+        enc = subprocess.run(
+            [VENV_PY, "-m", "ccsds_codec", "rs-enc", "--depth", str(depth)],
+            input=payload,
+            capture_output=True,
+        )
+>       assert enc.returncode == 0, enc.stderr
+E       AssertionError: b'usage: ccsds_codec [-h] [--rate RATE]
+E                            {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}
+E         ccsds_codec: error: unrecognized arguments: --depth 2
+E         '
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['/home/yamamo-to/ccsds-codec/venv/bin/python', '-m', 'ccsds_codec', 'rs-enc', '--depth', '2'], ...  {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}\nccsds_codec: error: unrecognized arguments: --depth 2\n').returncode
+
+tests/test_rs_cli.py:14: AssertionError
+________________________ test_cli_rs_depth_roundtrip[5] ________________________
+
+depth = 5
+
+    @pytest.mark.parametrize("depth", [1, 2, 5])
+    def test_cli_rs_depth_roundtrip(depth):
+        payload = os.urandom(1000)
+        enc = subprocess.run(
+            [VENV_PY, "-m", "ccsds_codec", "rs-enc", "--depth", str(depth)],
+            input=payload,
+            capture_output=True,
+        )
+>       assert enc.returncode == 0, enc.stderr
+E       AssertionError: b'usage: ccsds_codec [-h] [--rate RATE]
+E                            {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}
+E         ccsds_codec: error: unrecognized arguments: --depth 5
+E         '
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['/home/yamamo-to/ccsds-codec/venv/bin/python', '-m', 'ccsds_codec', 'rs-enc', '--depth', '5'], ...  {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}\nccsds_codec: error: unrecognized arguments: --depth 5\n').returncode
+
+tests/test_rs_cli.py:14: AssertionError
+_______________________ test_cli_rs_depth_invalid_choice _______________________
+
+    def test_cli_rs_depth_invalid_choice():
+        proc = subprocess.run(
+            [VENV_PY, "-m", "ccsds_codec", "rs-enc", "--depth", "6"],
+            input=b"",
+            capture_output=True,
+        )
+        assert proc.returncode != 0
+>       assert b"invalid choice" in proc.stderr
+E       AssertionError: assert b'invalid choice' in b'usage: ccsds_codec [-h] [--rate RATE]\n                   {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}\nccsds_codec: error: unrecognized arguments: --depth 6\n'
+E        +  where b'usage: ccsds_codec [-h] [--rate RATE]\n                   {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}\nccsds_codec: error: unrecognized arguments: --depth 6\n' = CompletedProcess(args=['/home/yamamo-to/ccsds-codec/venv/bin/python', '-m', 'ccsds_codec', 'rs-enc', '--depth', '6'], ...  {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}\nccsds_codec: error: unrecognized arguments: --depth 6\n').stderr
+
+tests/test_rs_cli.py:30: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_rs_cli.py::test_cli_rs_depth_roundtrip[1] - AssertionError:...
+FAILED tests/test_rs_cli.py::test_cli_rs_depth_roundtrip[2] - AssertionError:...
+FAILED tests/test_rs_cli.py::test_cli_rs_depth_roundtrip[5] - AssertionError:...
+FAILED tests/test_rs_cli.py::test_cli_rs_depth_invalid_choice - AssertionErro...
+4 failed in 1.91s

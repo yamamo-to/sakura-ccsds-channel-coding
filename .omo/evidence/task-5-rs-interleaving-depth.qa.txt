@@ -1,0 +1,5 @@
+CCSDS-RS-interleave-QA-data-123456789
+---
+usage: ccsds_codec [-h] [--rate RATE] [--depth {1,2,3,4,5}]
+                   {conv-enc,conv-dec,rs-enc,rs-dec,turbo-enc,turbo-dec,rand}
+ccsds_codec: error: argument --depth: invalid choice: '6' (choose from 1, 2, 3, 4, 5)
