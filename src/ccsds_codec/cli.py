@@ -94,14 +94,19 @@ def _turbo(mode: str, rate: str | None, parser: argparse.ArgumentParser) -> None
         _write_bits(turbo_encode(bits, rate=rate))
         return
     if rate == "1/6":
-        # Rate-1/6 frames are never byte-aligned; trim the trailing padding.
+        # Rate-1/6 frames are byte-aligned; trim up to 7 trailing pad bits.
         dec = decode_padded_rate16(bits)
+    elif rate == "1/3":
+        # Rate-1/3 frames carry 4 trailing padding bits when byte-packed.
+        dec = turbo_decode_unpunctured(bits)
     elif rate is not None:
         dec = turbo_decode(bits, rate=rate)
-    elif len(bits) % 3 == 0:
-        dec = turbo_decode_unpunctured(bits)
     else:
-        dec = turbo_decode(bits)
+        try:
+            # Default encode rate is 1/3; tolerate byte padding.
+            dec = turbo_decode_unpunctured(bits)
+        except ValueError:
+            dec = turbo_decode(bits)
     _write_bits(dec)
 
 
