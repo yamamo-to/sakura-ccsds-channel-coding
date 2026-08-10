@@ -48,12 +48,12 @@ def bench_conv(bits_len: int = 1024):
 
 def bench_turbo(bits_len: int = 1024):
     bits = utils.bytes_to_bits(np.random.bytes(bits_len))
-    t_enc = _measure(partial(turbo.encode, bits, puncture=False))
-    t_enc_p = _measure(partial(turbo.encode, bits, puncture=True))
-    encoded_full = turbo.encode(bits, puncture=False)
-    encoded_p = turbo.encode(bits, puncture=True)
+    t_enc = _measure(partial(turbo.encode, bits, rate="1/3"))
+    t_enc_p = _measure(partial(turbo.encode, bits, rate="1/2"))
+    encoded_full = turbo.encode(bits, rate="1/3")
+    encoded_p = turbo.encode(bits, rate="1/2")
     t_dec = _measure(partial(turbo.decode_unpunctured, encoded_full))
-    t_dec_p = _measure(partial(turbo.decode, encoded_p, iterations=3))
+    t_dec_p = _measure(partial(turbo.decode, encoded_p, iterations=3, rate="1/2"))
     mbps_enc = (len(bits) / t_enc) / 1e6 * 8
     mbps_enc_p = (len(bits) / t_enc_p) / 1e6 * 8
     mbps_dec = (len(bits) / t_dec) / 1e6 * 8
