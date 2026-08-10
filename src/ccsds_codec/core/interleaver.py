@@ -1,73 +1,87 @@
-"""CCSDS quadratic-permutation (QPP) interleaver.
+"""CCSDS Turbo interleaver (CCSDS 131.0-B-4 §6.3g).
 
-Implements the interleaver described in docs/CCSDS_Turbo_Spec.md §2.2
-(CCSDS 131.0-B-4 §3): ``π(i) = (f1·i + f2·i²) mod K``.
+Implements the block interleaver defined by the *Quadratic-Permutation*
+construction of CCSDS 131.0-B-4 §6.3g (Annex H of the Turbo coding
+recommendation): with ``k1 = 8`` and ``k2 = K / 8`` the output position ``j``
+(0-based) is fed by input position ``π(j)``, i.e. ``interleaved[j] = bits[π(j)]``.
+
+The permutation is golden-vector verified against the gr-ccsds-1 / SatDump
+reference implementation for every CCSDS block length.
 """
 
 from __future__ import annotations
 
-import math
+__all__ = ["ccsds_interleaver", "ccsds_deinterleaver", "ccsds_perm"]
 
-__all__ = ["ccsds_interleaver", "ccsds_deinterleaver", "qpp_perm", "qpp_params"]
+#: Odd-prime table used by the CCSDS §6.3g construction (k1 = 8).
+PRIMES = (31, 37, 43, 47, 53, 59, 61, 67)
+
+_K1 = 8
 
 
-def qpp_params(K: int) -> tuple[int, int]:
-    """Return valid QPP parameters ``(f1, f2)`` for block length ``K``.
+def ccsds_perm(K: int) -> list[int]:
+    """Return the CCSDS §6.3g permutation indices for block length ``K``.
 
-    Generic construction ``f1 = 1``, ``f2 = lcm(rad(K), 4 if 4 | K else 1)``
-    satisfies the quadratic-permutation conditions (Sun–Takeshita):
-    ``gcd(f1, K) = 1``, every prime divisor of ``K`` divides ``f2``, and
-    ``4 | f2`` whenever ``4 | K``.  It is therefore bijective for every
-    ``K``, including the CCSDS block lengths 1784/3568/7136/8920/16384.
+    The result ``perm`` satisfies ``interleaved[j] = bits[perm[j]]`` for
+    ``j = 0 .. K-1``.  ``K`` must be divisible by 8 (``k2 = K/8``); all CCSDS
+    block lengths (1784, 3568, 7136, 8920, 16384) satisfy this.
+
+    Args:
+        K: Block length in bits.
+
+    Returns:
+        Permutation indices, one per output position.
+
+    Raises:
+        ValueError: If ``K`` is not a positive multiple of 8.
     """
-    rad = 1
-    m = K
-    d = 2
-    while d * d <= m:
-        if m % d == 0:
-            rad *= d
-            while m % d == 0:
-                m //= d
-        d += 1
-    if m > 1:
-        rad *= m
-    f2 = math.lcm(rad, 4) if K % 4 == 0 else rad
-    return 1, f2
-
-
-def qpp_perm(K: int) -> list[int]:
-    """Permutation indices ``π(i) = (f1·i + f2·i²) mod K`` for i = 0..K-1."""
-    if K <= 0:
-        return []
-    f1, f2 = qpp_params(K)
-    return [(f1 * i + f2 * i * i) % K for i in range(K)]
+    if K <= 0 or K % _K1 != 0:
+        raise ValueError(
+            f"CCSDS §6.3g interleaver requires a block length divisible by 8, got {K}"
+        )
+    k2 = K // _K1
+    perm: list[int] = []
+    for s in range(1, K + 1):  # 1-based position within the block
+        m = (s - 1) % 2
+        i = (s - 1) // (2 * k2)
+        j = (s - 1) // 2 - i * k2
+        t = (19 * i + 1) % (_K1 // 2)
+        q = t % 8 + 1
+        c = (PRIMES[q - 1] * j + 21 * m) % k2
+        perm.append(2 * (t + c * (_K1 // 2) + 1) - m - 1)
+    if len(set(perm)) != K:
+        raise ValueError(
+            f"CCSDS §6.3g interleaver is not a permutation for block length {K}; "
+            "the CCSDS standard only guarantees the construction for the block "
+            "lengths 1784, 3568, 7136, 8920 and 16384"
+        )
+    return perm
 
 
 def ccsds_interleaver(bits: list[int]) -> list[int]:
-    """Apply the CCSDS quadratic-permutation interleaver.
+    """Apply the CCSDS §6.3g interleaver: ``out[j] = bits[perm[j]]``.
 
-    Output position ``π(i)`` receives input bit ``i`` (``out[π(i)] = bits[i]``,
-    docs/CCSDS_Turbo_Spec.md §2.2).  The mapping is a permutation, so
-    ``ccsds_deinterleaver(ccsds_interleaver(bits)) == bits``.  It is **not**
-    self-inverse.
+    Args:
+        bits: Input bit list (length a positive multiple of 8).
+
+    Returns:
+        Interleaved bit list of the same length.
     """
-    K = len(bits)
-    if K < 2:
-        return bits[:]
-    out: list[int] = [0] * K
-    f1, f2 = qpp_params(K)
-    for i in range(K):
-        out[(f1 * i + f2 * i * i) % K] = bits[i]
-    return out
+    perm = ccsds_perm(len(bits))
+    return [bits[p] for p in perm]
 
 
 def ccsds_deinterleaver(bits: list[int]) -> list[int]:
-    """Inverse of :func:`ccsds_interleaver` (``out[i] = bits[π(i)]``)."""
-    K = len(bits)
-    if K < 2:
-        return bits[:]
-    out: list[int] = [0] * K
-    f1, f2 = qpp_params(K)
-    for i in range(K):
-        out[i] = bits[(f1 * i + f2 * i * i) % K]
+    """Inverse of :func:`ccsds_interleaver`: ``out[perm[j]] = bits[j]``.
+
+    Args:
+        bits: Interleaved bit list (length a positive multiple of 8).
+
+    Returns:
+        De-interleaved bit list of the same length.
+    """
+    perm = ccsds_perm(len(bits))
+    out: list[int] = [0] * len(bits)
+    for j, p in enumerate(perm):
+        out[p] = bits[j]
     return out

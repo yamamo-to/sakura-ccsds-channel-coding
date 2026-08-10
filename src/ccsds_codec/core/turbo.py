@@ -1,26 +1,40 @@
-"""CCSDS Turbo encoder/decoder (rates 1/3, 1/4, 1/2, 1/6; iterative Log-MAP).
+"""CCSDS Turbo encoder/decoder (rates 1/2, 1/3, 1/4, 1/6; iterative Log-MAP).
 
-Implements the Turbo code described in ``docs/CCSDS_Turbo_Spec.md`` (a summary
-of CCSDS 131.0-B-4 §3 / §5 / §6).  The quadratic-permutation interleaver
-lives in :mod:`ccsds_codec.core.interleaver`.
+Implements the Turbo code of CCSDS 131.0-B-4 §3 / §5 / §6 with the
+**recursive** (feedback) RSC constituent codes of §3.3.1 and the
+**block interleaver** of §6.3g:
 
-* **Constituent code** – constraint length ``K = 5`` with feedback polynomial
-  ``g0 = 10011_2 (23_8)`` and forward polynomial ``g1 = 11011_2 (33_8)``.
-  Following the spec's BCJR sketch (docs §2.4) the transitions are computed
-  in the lsb-current feed-forward form ``ns = (state << 1 | u) & MASK`` with
-  parity ``parity(ns & g1)``, used identically for both constituent encoders.
-  The rate-1/6 constituent codes additionally use the forward polynomials
-  ``g2 = 10101_2 (25_8)`` and ``g3 = 11111_2 (37_8)`` (CCSDS 131.0-B-4 §3.3.1).
-* **Puncturing** – rate-1/4 keeps systematic + parity1 + the even-indexed
-  parity2 bits (docs §2.3). The punctured frame additionally carries the 4
-  flush (termination) parity bits of the first constituent so the decoder
-  knows the terminal state (CCSDS §3.2.3).  Rate-1/6 is the full unpunctured
-  code: systematic + parity1/2/3 of the first constituent + parity1/3 of the
-  second, plus the flush parity bits of both constituents.
-* **Decoder** – iterative Log-MAP (BCJR) per docs §2.4–2.5, numerically
-  stable through ``np.logaddexp`` (no exp overflow/underflow).  LLR
-  convention: positive value = likelihood of bit 0, negative = likelihood of
-  bit 1 (AGENTS.md §2); the internal scale is ±1.0 (docs §6.2.2).
+* **Constituent code** – constraint length ``K = 5`` (4-bit shift register),
+  feedback polynomial ``g0 = 10011_2 (23_8)`` (feedback ``fb = D3 ^ D4``,
+  newest register bit ``D1``) and forward polynomials over
+  ``[new_D1, D1, D2, D3, D4]`` (bits 4..0 of the generator integer):
+  ``G1 = 11011_2 (33_8)``, ``G2 = 10101_2 (25_8)``, ``G3 = 11111_2 (37_8)``.
+  The systematic output is ``G_SYS = 10011_2 (23_8)``.  The register is
+  flushed to zero over the last 4 steps by feeding the feedback bit back
+  (CCSDS §3.2.3 termination), giving stream length ``K + 4`` per output.
+* **Interleaver** – CCSDS §6.3g quadratic-permutation block interleaver
+  (:mod:`ccsds_codec.core.interleaver`, ``interleaved[j] = bits[perm[j]]``).
+* **Rates / stream layout** (transmitted order, block-per-codeword):
+  * rate 1/2 – ``2*(K+4)`` bits: ``[s_c, p_c]`` where ``p_c`` is the upper
+    ``G1`` parity for even codewords and the lower ``G1`` parity for odd
+    codewords (CCSDS §3.4.2 puncturing of the rate-1/3 code);
+  * rate 1/3 – ``3*(K+4)`` bits: ``[s_c, uG1_c, lG1_c]``;
+  * rate 1/4 – ``4*(K+4)`` bits: ``[s_c, uG2_c, uG3_c, lG1_c]``;
+  * rate 1/6 – ``6*(K+4)`` bits: ``[s_c, uG1_c, uG2_c, uG3_c, lG1_c, lG3_c]``.
+  Upper constituent gens: 1/2,1/3 → ``[SYS,G1]``; 1/4 → ``[SYS,G2,G3]``;
+  1/6 → ``[SYS,G1,G2,G3]``.  Lower constituent gens: 1/2,1/3,1/4 → ``[G1]``;
+  1/6 → ``[G1,G3]``.
+* **Decoder** – iterative Log-MAP (BCJR) with true extrinsic separation:
+  ``γ(s',u) = 0.5·Σ_c ch_llr[c]·x_c ± La/2``,
+  ``LLR(u_k) = max*_{u=0}(α+γ+β) − max*_{u=1}(α+γ+β)``,
+  ``ext = LLR − La − ch_sys``.  Numerically stable through
+  ``np.logaddexp`` (no exp overflow/underflow).  LLR convention: positive
+  value = likelihood of bit 0, negative = likelihood of bit 1 (AGENTS.md §2).
+  The final hard decision uses the de-interleaved APP of the lower
+  constituent (golden-verified against the gr-ccsds-1 / SatDump reference).
+
+The encoder output is bit-exact against the CCSDS golden vectors
+(K = 1784, 3568; all four rates; ``tests/test_turbo_golden.py``).
 """
 
 from __future__ import annotations
@@ -29,534 +43,445 @@ import numpy as np
 from numba import njit
 
 from .convolutional import _parity
-from .interleaver import ccsds_deinterleaver, ccsds_interleaver, qpp_perm
+from .interleaver import ccsds_deinterleaver, ccsds_interleaver, ccsds_perm
 
 __all__ = [
     "GEN",
-    "MASK",
-    "TAIL",
+    "GEN_SYS",
     "GEN2",
     "GEN3",
     "LLR_0",
     "LLR_1",
-    "payload_len_from_punctured",
-    "ccsds_interleaver",
+    "TAIL",
     "ccsds_deinterleaver",
-    "encode",
+    "ccsds_interleaver",
     "decode",
-    "decode_unpunctured",
     "decode_padded_rate16",
+    "decode_unpunctured",
+    "encode",
 ]
 
-# Constituent-code constants (CCSDS 131.0-B-4 §3.3.1; docs/CCSDS_Turbo_Spec.md):
-#   g1 = 11011_2 = 33_8, K = 5  →  4-bit shift register, states 0..15
-GEN = 0x1B  # forward polynomial in lsb-current representation
-MASK = 0xF  # (1 << (K - 1)) - 1 for K = 5
-TAIL = 4  # K - 1 flush (termination) bits per constituent code
+# Constituent-code generator polynomials (CCSDS 131.0-B-4 §3.3.1) as integers
+# whose bits 4..0 are the coefficients of [new_D1, D1, D2, D3, D4]:
+#   G_SYS = 10011_2 -> output = new_D1 ^ D3 ^ D4 (= the info bit u)
+#   G1    = 11011_2 -> output = new_D1 ^ D1 ^ D4
+#   G2    = 10101_2 -> output = new_D1 ^ D2 ^ D4
+#   G3    = 11111_2 -> output = new_D1 ^ D1 ^ D2 ^ D3 ^ D4
+GEN_SYS = 0x13
+GEN = 0x1B  # G1 (kept name for backwards compatibility)
+GEN2 = 0x15  # G2
+GEN3 = 0x1F  # G3
 
-# Rate-1/6 forward polynomials (CCSDS 131.0-B-4 §3.3.1, Table 3-1):
-#   G2 = 10101_2 = 25_8, G3 = 11111_2 = 37_8
-# Both are bit-symmetric, so the lsb-current representation equals the
-# standard (msb-first) binary form.
-GEN2 = 0x15
-GEN3 = 0x1F
+#: Termination (flush) steps per constituent code (K - 1 = 4 for K = 5).
+TAIL = 4
 
-# LLR scale (docs §6.2.2): bit 0 → +1.0, bit 1 → -1.0
+# LLR scale (AGENTS.md §2): bit 0 -> +1.0, bit 1 -> -1.0
 LLR_0 = 1.0
 LLR_1 = -1.0
 
+#: Codeword components per rate (stream length = NCOMP[rate] * (K + TAIL)).
+NCOMP = {"1/2": 2, "1/3": 3, "1/4": 4, "1/6": 6}
 
-def payload_len_from_punctured(p_len: int) -> int:
-    """Return the original payload length *L* from a punctured stream length.
+#: Constituent generator lists per rate (index 0 is the systematic output).
+_UPPER_GENS = {
+    "1/2": [GEN_SYS, GEN],
+    "1/3": [GEN_SYS, GEN],
+    "1/4": [GEN_SYS, GEN2, GEN3],
+    "1/6": [GEN_SYS, GEN, GEN2, GEN3],
+}
+_LOWER_GENS = {
+    "1/2": [GEN_SYS, GEN],
+    "1/3": [GEN_SYS, GEN],
+    "1/4": [GEN_SYS, GEN],
+    "1/6": [GEN_SYS, GEN, GEN3],
+}
 
-    The punctured (rate‑1/4) length obeys ``2*L + ceil(L/2) == p_len``
-    (docs/CCSDS_Turbo_Spec.md §2.3).  ``L`` can be solved analytically:
-    ``L = floor((2 * p_len) / 5)`` and then adjusted by at most one to
-    satisfy the equality.
-    """
-    # Initial guess (integer division)
-    L = (2 * p_len) // 5
-    # Adjust upwards until the equation holds
-    while 2 * L + (L + 1) // 2 < p_len:
-        L += 1
-    if 2 * L + (L + 1) // 2 != p_len:
-        raise ValueError("Invalid punctured length")
-    return L
-
-
-def _rsc_parity(bits: list[int], flush: int = 0) -> tuple[list[int], list[int]]:
-    """Parity bits of one feed-forward constituent encoder (g1 = 0x1B).
-
-    Returns ``(parity, flush_parity)``: one parity bit per input bit with the
-    register updated lsb-current (``state = (state << 1 | u) & MASK``),
-    followed by ``flush`` parity bits computed while shifting in zeros.  Four
-    zero shifts reset the 4-bit register to state 0 (CCSDS §3.2.3
-    termination), which the decoder relies on for its backward recursion.
-    """
-    state = 0
-    par: list[int] = []
-    for u in bits:
-        state = ((state << 1) | u) & MASK
-        par.append(_parity(state & GEN))
-    flush_par: list[int] = []
-    for _ in range(flush):
-        state = ((state << 1) | 0) & MASK
-        flush_par.append(_parity(state & GEN))
-    return par, flush_par
+#: CCSDS block lengths (CCSDS 131.0-B-4 §3.1.1).
+STANDARD_K = (1784, 3568, 7136, 8920, 16384)
 
 
-def _rsc_parities(
-    bits: list[int], gens: tuple[int, ...], flush: int = 0
-) -> tuple[list[list[int]], list[list[int]]]:
-    """Parity bits of a feed-forward constituent encoder per generator.
+def _rsc_streams(bits: list[int], gens: list[int]) -> list[list[int]]:
+    """Encode one recursive RSC constituent, one stream per generator.
 
-    Like :func:`_rsc_parity` but computes one parity stream per polynomial in
-    ``gens`` (used for the rate-1/6 constituent codes, which produce several
-    parity outputs).  Returns ``(parities, flush_parities)``, each a list with
-    one entry per generator.
+    Implements the recursive shift register of CCSDS 131.0-B-4 §3.3.1:
+    ``fb = D3 ^ D4``, ``new_D1 = u ^ fb``, ``ns = (state >> 1) | (new_D1 << 3)``.
+    The last ``TAIL`` steps terminate the register at state 0 by feeding the
+    feedback bit back as input (CCSDS §3.2.3).
+
+    Args:
+        bits: Payload bits (each 0 or 1).
+        gens: Generator polynomials (int, bits 4..0 = [new_D1..D4]).
+
+    Returns:
+        One list of length ``len(bits) + TAIL`` per generator.
     """
     state = 0
-    pars: list[list[int]] = [[] for _ in gens]
-    for u in bits:
-        state = ((state << 1) | u) & MASK
-        for j, g in enumerate(gens):
-            pars[j].append(_parity(state & g))
-    flush_pars: list[list[int]] = [[] for _ in gens]
-    for _ in range(flush):
-        state = ((state << 1) | 0) & MASK
-        for j, g in enumerate(gens):
-            flush_pars[j].append(_parity(state & g))
-    return pars, flush_pars
+    streams: list[list[int]] = [[] for _ in gens]
+    seq: list[int | None] = list(bits) + [None] * TAIL
+    for u in seq:
+        D1, D2, D3, D4 = (state >> 3) & 1, (state >> 2) & 1, (state >> 1) & 1, state & 1
+        fb = D3 ^ D4
+        if u is None:
+            u = fb  # termination: input = feedback -> register flushes to 0
+        new_D1 = u ^ fb
+        ns = (state >> 1) | (new_D1 << 3)
+        for g, st in zip(gens, streams):
+            v = (
+                ((g >> 4) & 1) * new_D1
+                ^ ((g >> 3) & 1) * D1
+                ^ ((g >> 2) & 1) * D2
+                ^ ((g >> 1) & 1) * D3
+                ^ (g & 1) * D4
+            )
+            st.append(_parity(v))
+        state = ns
+    return streams
 
 
 def encode(bits: list[int], puncture: bool = False, rate: str | None = None) -> list[int]:
-    """Encode *bits* with the CCSDS Turbo scheme.
+    """Encode *bits* with the CCSDS Turbo scheme (recursive RSC + §6.3g).
 
-    Backwards‑compatible signature:
-    * ``puncture`` – legacy flag; ``True`` yields the CCSDS punctured
-      (rate‑1/4) format, ``False`` yields the full rate‑1/3 stream.
-    * ``rate`` – optional explicit rate string (``"1/3"``, ``"1/4"``,
-      ``"1/2"`` or ``"1/6"``).  If provided it overrides ``puncture``.
+    Backwards-compatible signature:
+    * ``rate`` – explicit rate string (``"1/2"``, ``"1/3"``, ``"1/4"`` or
+      ``"1/6"``); overrides ``puncture`` when given.
+    * ``puncture`` – legacy flag: ``True`` selects the punctured rate‑1/2
+      code, ``False`` the full rate‑1/3 code.
 
-    Supported rates:
-    * ``"1/3"`` – full (systematic + parity1 + parity2).
-    * ``"1/4"`` – CCSDS punctured pattern (systematic + parity1 + even-indexed
-      parity2 + 4 flush bits).
-    * ``"1/2"`` – systematic + parity1 + 4 flush bits (parity2 omitted).
-    * ``"1/6"`` – CCSDS full rate‑1/6: constituent A (natural order) outputs
-      ``G1, G2, G3`` parities, constituent B (interleaved) outputs ``G1, G3``
-      parities (CCSDS 131.0-B-4 §3.3.1), plus the flush parity bits of both
-      constituents.  Stream layout ``x + pA1 + pA2 + pA3 + pB1 + pB3``
-      followed by ``4 + 4 + 4 + 4 + 4`` flush parity bits.
+    Stream layouts (CCSDS 131.0-B-4 §3.4 / golden-verified):
+    * ``"1/2"`` – ``2*(K+4)``: ``[s_c, par_c]`` with ``par_c`` = upper G1 at
+      even codewords, lower G1 at odd codewords;
+    * ``"1/3"`` – ``3*(K+4)``: ``[s_c, uG1_c, lG1_c]``;
+    * ``"1/4"`` – ``4*(K+4)``: ``[s_c, uG2_c, uG3_c, lG1_c]``;
+    * ``"1/6"`` – ``6*(K+4)``: ``[s_c, uG1_c, uG2_c, uG3_c, lG1_c, lG3_c]``.
 
     Args:
         bits: Input payload; each element must be 0 or 1.
-        puncture: Legacy flag for rate‑1/4 (default ``False``).
+        puncture: Legacy flag for rate 1/2 (default ``False``).
         rate: Optional explicit rate; overrides ``puncture`` when given.
 
     Returns:
-        Encoded bit list.
+        Encoded bit list of length ``NCOMP[rate] * (K + TAIL)``.
     """
     if not bits:
         return []
-    # Validate bits are 0 or 1
     for i, b in enumerate(bits):
         if b not in (0, 1):
             raise ValueError(f"Bit at position {i} is not 0 or 1: {b}")
 
-    # Determine the effective rate
-    if rate is None:
-        effective_rate = "1/4" if puncture else "1/3"
-    else:
-        effective_rate = rate
-
-    if effective_rate == "1/6":
-        pA, fA = _rsc_parities(bits, (GEN, GEN2, GEN3), TAIL)
-        pB, fB = _rsc_parities(ccsds_interleaver(bits), (GEN, GEN3), TAIL)
-        stream = bits + pA[0] + pA[1] + pA[2] + pB[0] + pB[1]
-        stream += fA[0] + fA[1] + fA[2] + fB[0] + fB[1]
-        return stream
-
-    p1, p1_flush = _rsc_parity(bits, TAIL)
-    p2, _ = _rsc_parity(ccsds_interleaver(bits), TAIL)
-
-    if effective_rate == "1/3":
-        # Full rate‑1/3 stream
-        return bits + p1 + p2
-    elif effective_rate == "1/4":
-        # CCSDS punctured pattern (even-indexed parity2 + tail)
-        return bits + p1 + p2[0::2] + p1_flush
-    elif effective_rate == "1/2":
-        # Systematic + parity1 + tail (parity2 omitted)
-        return bits + p1 + p1_flush
-    else:
+    effective_rate = rate if rate is not None else ("1/2" if puncture else "1/3")
+    if effective_rate not in NCOMP:
         raise ValueError(f"Unsupported Turbo code rate: {effective_rate}")
 
+    K = len(bits)
+    ibits = ccsds_interleaver(bits)
+    ncomp = NCOMP[effective_rate]
 
-def _puncture(full_bits: list[int]) -> list[int]:
-    """Apply the CCSDS puncturing pattern (Rate 1/4) to a 3·L stream.
+    if effective_rate in ("1/2", "1/3"):
+        upper = _rsc_streams(bits, _UPPER_GENS[effective_rate])  # [sys, G1]
+        lower = _rsc_streams(ibits, _LOWER_GENS[effective_rate])  # [sys, G1]
+        blocks = [
+            [upper[0][i], upper[1][i], lower[1][i]] for i in range(K + TAIL)
+        ]
+        if effective_rate == "1/2":
+            # Puncture: even codeword keeps upper G1, odd keeps lower G1.
+            out: list[int] = []
+            for cw, blk in enumerate(blocks):
+                out.append(blk[0])
+                out.append(blk[1] if cw % 2 == 0 else blk[2])
+            return out
+        return [b for blk in blocks for b in blk]
 
-    ``full_bits`` is ``systematic + parity1 + parity2`` (3 × payload_len).
-    The output concatenates the systematic block, the parity1 block, and a
-    filtered parity2 block that contains only the bits for *even-indexed*
-    payload positions (docs/CCSDS_Turbo_Spec.md §2.3).
+    if effective_rate == "1/4":
+        upper = _rsc_streams(bits, _UPPER_GENS["1/4"])  # [sys, G2, G3]
+        lower = _rsc_streams(ibits, _LOWER_GENS["1/4"])  # [sys, G1]
+        blocks = [
+            [upper[0][i], upper[1][i], upper[2][i], lower[1][i]]
+            for i in range(K + TAIL)
+        ]
+        return [b for blk in blocks for b in blk]
+
+    # rate 1/6
+    upper = _rsc_streams(bits, _UPPER_GENS["1/6"])  # [sys, G1, G2, G3]
+    lower = _rsc_streams(ibits, _LOWER_GENS["1/6"])  # [sys, G1, G3]
+    blocks = [
+        [upper[0][i], upper[1][i], upper[2][i], upper[3][i], lower[1][i], lower[2][i]]
+        for i in range(K + TAIL)
+    ]
+    return [b for blk in blocks for b in blk]
+
+
+# --- trellis tables ---------------------------------------------------------
+
+
+def _build_trellis(gens: list[int]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build the recursive-RSC trellis tables for one constituent code.
+
+    Returns ``(ns, x, pred0, pred1)`` with (state bits: bit3 = D1 newest …
+    bit0 = D4 oldest):
+
+    * ``ns[s, u]`` – next state for input bit ``u``;
+    * ``x[s, u, c]`` – BPSK channel symbol (bit 0 -> +1, bit 1 -> -1) of
+      component ``c`` (component 0 is the systematic output);
+    * ``pred0[s]`` / ``pred1[s]`` – the unique predecessor state ``s'`` with
+      ``ns[s', 0] == s`` / ``ns[s', 1] == s``.
     """
-    L = len(full_bits) // 3
-    systematic = full_bits[:L]
-    parity1 = full_bits[L : 2 * L]
-    parity2 = full_bits[2 * L :]
-    # parity2 kept only for even indices
-    parity2_filtered = [parity2[i] for i in range(L) if i % 2 == 0]
-    return systematic + parity1 + parity2_filtered
+    ns = np.empty((16, 2), dtype=np.int64)
+    x = np.empty((16, 2, len(gens)), dtype=np.float64)
+    for s in range(16):
+        D1, D2, D3, D4 = (s >> 3) & 1, (s >> 2) & 1, (s >> 1) & 1, s & 1
+        fb = D3 ^ D4
+        for u in (0, 1):
+            new_D1 = u ^ fb
+            ns[s, u] = (s >> 1) | (new_D1 << 3)
+            for gi, g in enumerate(gens):
+                v = (
+                    ((g >> 4) & 1) * new_D1
+                    ^ ((g >> 3) & 1) * D1
+                    ^ ((g >> 2) & 1) * D2
+                    ^ ((g >> 1) & 1) * D3
+                    ^ (g & 1) * D4
+                )
+                x[s, u, gi] = 1.0 - 2.0 * _parity(v)
+    pred0 = np.empty(16, dtype=np.int64)
+    pred1 = np.empty(16, dtype=np.int64)
+    for s in range(16):
+        pred0[s] = next(s0 for s0 in range(16) if ns[s0, 0] == s)
+        pred1[s] = next(s0 for s0 in range(16) if ns[s0, 1] == s)
+    return ns, x, pred0, pred1
 
 
-def _depuncture(punctured: list[int]) -> list[int]:
-    """Re-construct the unpunctured stream from a CCSDS punctured stream.
-
-    Missing ``parity2`` bits (those for odd indices) are filled with ``0`` —
-    these positions will be treated as erasures (LLR = 0) by the MAP decoder.
-    The function returns ``[systematic, parity1, parity2]`` concatenated.
-    """
-    L = payload_len_from_punctured(len(punctured))
-    systematic = punctured[:L]
-    parity1 = punctured[L : 2 * L]
-    filtered = punctured[2 * L :]
-    parity2: list[int] = []
-    f_idx = 0
-    for i in range(L):
-        if i % 2 == 0:
-            parity2.append(filtered[f_idx])
-            f_idx += 1
-        else:
-            parity2.append(0)
-    return systematic + parity1 + parity2
-
-
-# --- Log-MAP (BCJR) kernel (numba JIT, per AGENTS.md §4.2) ---
+# --- Log-MAP (BCJR) kernel (numba JIT, per AGENTS.md §4.2) -------------------
 
 
 @njit(fastmath=True, cache=True)
-def _bcjr_multi_kernel(sys_llr, par_llrs, gens, data_len):  # noqa: C901  (Log-MAP state recursion is inherently complex; golden-vector verified)
-    """Log‑MAP (BCJR) kernel for one constituent code (numba JIT).
+def _bcjr_kernel(ch, la, ns, x, pred0, pred1, data_len):
+    """Log‑MAP (BCJR) kernel for one recursive RSC constituent (numba JIT).
 
-    Generalization of :func:`_bcjr_kernel` to several parity outputs:
-    ``par_llrs`` is a 2-D float64 array of shape ``(n_par, total)`` and
-    ``gens`` the matching generator polynomials; the branch metric sums the
-    parity contributions of all outputs.
-
-    ``sys_llr`` is a float64 array of length ``data_len + TAIL``.  For the
-    termination steps ``i >= data_len`` only the ``u = 0`` transition is
-    allowed, the systematic contribution is zero, and the parity LLR comes
-    from ``par_llrs`` (0.0 = erasure when the flush parity was not
-    transmitted).  The backward recursion is initialized with
-    ``beta[total]`` one-hot at state 0, matching the encoder's flush-to-zero
-    termination.
+    Golden-verified formulation (see scratch_turbo_decoder.py):
+    ``γ(s',u) = 0.5·Σ_c ch[c,i]·x[s',u,c] ± La/2`` with the a-priori term
+    applied only to the ``data_len`` information steps; the ``TAIL``
+    termination steps keep both input values (the encoder's termination
+    input is the feedback bit, not a forced zero) and carry no prior.
+    The trellis is terminated: α starts one-hot at state 0 and β ends
+    one-hot at state 0 (CCSDS §3.2.3).  Per-step max normalisation keeps
+    the recursion numerically bounded.
 
     Args:
-        sys_llr: Systematic LLRs (payload positions), zero-padded to
-            ``data_len + TAIL`` entries.
-        par_llrs: Parity LLRs, shape ``(n_par, data_len + TAIL)``.
-        gens: Generator polynomials, length ``n_par``, in lsb-current
-            representation.
-        data_len: Number of payload positions.
+        ch: Channel LLRs, float64 array of shape ``(ncomp, N)`` with
+            ``N = data_len + TAIL``; punctured positions must be 0.0.
+        la: A-priori LLRs, float64 array of shape ``(data_len,)``.
+        ns: Next-state table ``(16, 2)`` int64.
+        x: BPSK output table ``(16, 2, ncomp)`` float64 (bit 0 -> +1).
+        pred0: Predecessor table for input 0, ``(16,)`` int64.
+        pred1: Predecessor table for input 1, ``(16,)`` int64.
+        data_len: Number of information (payload) positions.
 
     Returns:
-        Posterior LLRs for the ``data_len`` payload positions (positive =
-        likelihood of bit 0, per AGENTS.md §2).
+        Tuple ``(ext, app)`` of float64 arrays of shape ``(data_len,)``:
+        the extrinsic LLRs and the full APP LLRs (positive = bit 0).
     """
-    total = sys_llr.shape[0]
+    ncomp = ch.shape[0]
+    N = ch.shape[1]
     n_states = 16
     neg_inf = -np.inf
-    alpha = np.full((total + 1, n_states), neg_inf, dtype=np.float64)
-    beta = np.full((total + 1, n_states), neg_inf, dtype=np.float64)
-    alpha[0, 0] = 0.0
-    beta[total, 0] = 0.0
+
+    # gamma[i, s, u] = 0.5 * sum_c ch[c, i] * x[s, u, c]
+    gamma = np.empty((N, n_states, 2), dtype=np.float64)
+    for i in range(N):
+        for s in range(n_states):
+            for u in range(2):
+                acc = 0.0
+                for c in range(ncomp):
+                    acc += x[s, u, c] * ch[c, i]
+                gamma[i, s, u] = 0.5 * acc
+    for i in range(data_len):
+        for s in range(n_states):
+            gamma[i, s, 0] += 0.5 * la[i]
+            gamma[i, s, 1] -= 0.5 * la[i]
 
     # Forward (alpha) recursion
-    for i in range(total):
-        if i < data_len:
-            sl = sys_llr[i]
-            n_u = 2
-        else:
-            sl = 0.0
-            n_u = 1  # termination: input bit forced to 0
-        for s in range(n_states):
-            a = alpha[i, s]
-            if a == neg_inf:
-                continue
-            for u in range(n_u):
-                ns = ((s << 1) | u) & MASK
-                pbm = 0.0
-                for j in range(par_llrs.shape[0]):
-                    pj = _parity(ns & gens[j])
-                    pbm += par_llrs[j, i] * (1 - 2 * pj)
-                bm = (sl * (1 - 2 * u) + pbm) * 0.5
-                alpha[i + 1, ns] = np.logaddexp(alpha[i + 1, ns], a + bm)
+    alpha = np.full((N + 1, n_states), neg_inf, dtype=np.float64)
+    alpha[0, 0] = 0.0
+    for i in range(N):
+        g0 = gamma[i, :, 0]
+        g1 = gamma[i, :, 1]
+        a = np.logaddexp(alpha[i][pred0] + g0[pred0], alpha[i][pred1] + g1[pred1])
+        alpha[i + 1] = a - a.max()
 
     # Backward (beta) recursion
-    for i in range(total - 1, -1, -1):
-        if i < data_len:
-            sl = sys_llr[i]
-            n_u = 2
-        else:
-            sl = 0.0
-            n_u = 1
-        for s in range(n_states):
-            for u in range(n_u):
-                ns = ((s << 1) | u) & MASK
-                b = beta[i + 1, ns]
-                if b == neg_inf:
-                    continue
-                pbm = 0.0
-                for j in range(par_llrs.shape[0]):
-                    pj = _parity(ns & gens[j])
-                    pbm += par_llrs[j, i] * (1 - 2 * pj)
-                bm = (sl * (1 - 2 * u) + pbm) * 0.5
-                beta[i, s] = np.logaddexp(beta[i, s], b + bm)
+    beta = np.full((N + 1, n_states), neg_inf, dtype=np.float64)
+    beta[N, 0] = 0.0
+    for i in range(N - 1, -1, -1):
+        g0 = gamma[i, :, 0]
+        g1 = gamma[i, :, 1]
+        b = np.logaddexp(beta[i + 1][ns[:, 0]] + g0, beta[i + 1][ns[:, 1]] + g1)
+        beta[i] = b - b.max()
 
-    # Posterior LLR for each payload position
-    post = np.empty(data_len, dtype=np.float64)
+    # Posterior / extrinsic LLRs for the information positions
+    ext = np.empty(data_len, dtype=np.float64)
+    app = np.empty(data_len, dtype=np.float64)
     for i in range(data_len):
-        sl = sys_llr[i]
-        L0 = neg_inf
-        L1 = neg_inf
-        for s in range(n_states):
-            a = alpha[i, s]
-            if a == neg_inf:
-                continue
-            for u in (0, 1):
-                ns = ((s << 1) | u) & MASK
-                b = beta[i + 1, ns]
-                if b == neg_inf:
-                    continue
-                pbm = 0.0
-                for j in range(par_llrs.shape[0]):
-                    pj = _parity(ns & gens[j])
-                    pbm += par_llrs[j, i] * (1 - 2 * pj)
-                bm = (sl * (1 - 2 * u) + pbm) * 0.5
-                prob = a + bm + b
-                if u == 0:
-                    L0 = np.logaddexp(L0, prob)
-                else:
-                    L1 = np.logaddexp(L1, prob)
-        post[i] = L0 - L1
-    return post
+        g0 = gamma[i, :, 0]
+        g1 = gamma[i, :, 1]
+        t0 = alpha[i] + g0 + beta[i + 1][ns[:, 0]]
+        t1 = alpha[i] + g1 + beta[i + 1][ns[:, 1]]
+        m0 = t0.max()
+        m1 = t1.max()
+        l0 = m0 + np.log(np.sum(np.exp(t0 - m0)))
+        l1 = m1 + np.log(np.sum(np.exp(t1 - m1)))
+        llr = l0 - l1
+        app[i] = llr
+        ext[i] = llr - la[i] - ch[0, i]
+    return ext, app
 
 
-@njit(fastmath=True, cache=True)
-def _bcjr_kernel(sys_llr, par_llr, gen, data_len):
-    """Log‑MAP (BCJR) kernel for one constituent code (numba JIT).
-
-    ``sys_llr`` / ``par_llr`` are float64 arrays of length
-    ``data_len + TAIL``.  For the termination steps ``i >= data_len`` only the
-    ``u = 0`` transition is allowed, the systematic contribution is zero, and
-    the parity LLR comes from ``par_llr`` (0.0 = erasure when the flush parity
-    was not transmitted).  The backward recursion is initialized with
-    ``beta[total]`` one-hot at state 0, matching the encoder's flush-to-zero
-    termination.
-
-    Args:
-        sys_llr: Systematic LLRs (payload positions), zero-padded to
-            ``data_len + TAIL`` entries.
-        par_llr: Parity LLRs, ``data_len + TAIL`` entries (flush steps may be
-            real parity or erasures).
-        gen: Generator polynomial (0x1B) in lsb-current representation.
-        data_len: Number of payload positions.
-
-    Returns:
-        Posterior LLRs for the ``data_len`` payload positions (positive =
-        likelihood of bit 0, per AGENTS.md §2).
-    """
-    par_llrs = par_llr.reshape(1, par_llr.shape[0])
-    gens = np.empty(1, dtype=np.int64)
-    gens[0] = gen
-    return _bcjr_multi_kernel(sys_llr, par_llrs, gens, data_len)
-
-
-# JIT-compile the BCJR kernels at import time so that a timed first decode()
+# JIT-compile the BCJR kernel at import time so that a timed first decode()
 # call (e.g. the performance benchmark) does not pay the compilation cost.
 _bcjr_kernel(
-    np.zeros(TAIL + 1, dtype=np.float64),
-    np.zeros(TAIL + 1, dtype=np.float64),
-    GEN,
-    1,
-)
-_bcjr_multi_kernel(
-    np.zeros(TAIL + 1, dtype=np.float64),
-    np.zeros((3, TAIL + 1), dtype=np.float64),
-    np.array([GEN, GEN2, GEN3], dtype=np.int64),
+    np.zeros((2, TAIL + 1), dtype=np.float64),
+    np.zeros(1, dtype=np.float64),
+    np.zeros((16, 2), dtype=np.int64),
+    np.zeros((16, 2, 2), dtype=np.float64),
+    np.zeros(16, dtype=np.int64),
+    np.zeros(16, dtype=np.int64),
     1,
 )
 
 
-def _llr_array(bits_with_erasures: list[int]) -> np.ndarray:
-    """Map 0/1 bits to LLRs (+LLR_0 / LLR_1); ``-1`` marks an erasure → 0.0."""
-    a = np.asarray(bits_with_erasures, dtype=np.int64)
-    return np.where(a == 0, LLR_0, np.where(a == 1, LLR_1, 0.0)).astype(np.float64)
+def _llr_array(bits: list[int]) -> np.ndarray:
+    """Map 0/1 bits to LLRs (+LLR_0 / LLR_1); any other value is an erasure → 0.0."""
+    a = np.asarray(bits, dtype=np.float64)
+    return np.where(a == 0.0, LLR_0, np.where(a == 1.0, LLR_1, 0.0)).astype(np.float64)
 
 
-def _decode_core(
-    sys_bits: list[int],
-    p1_bits: list[int],
-    p2_bits: list[int],
-    iterations: int,
-    p1_tail_bits: list[int] | None = None,
-) -> list[int]:
-    """Iterative Log‑MAP decoding of one rate‑1/3 Turbo frame.
+def _demux(rx: np.ndarray, rate: str, K: int, perm: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Split the received LLR sequence into upper/lower constituent streams.
 
-    Runs ``iterations`` turbo iterations (docs/CCSDS_Turbo_Spec.md §2.5):
-    BCJR on the first constituent with the systematic+apriori LLRs, the
-    extrinsic is interleaved and fed with the interleaved systematic LLRs into
-    the second constituent's BCJR, and the de-interleaved extrinsic becomes
-    the next iteration's apriori.  The final hard decision uses
-    ``sys + apriori`` (LLR ≥ 0 → bit 0).
-
-    With ``iterations == 0`` the MAP loop is skipped and the systematic bits
-    are returned directly.
+    ``rx`` has shape ``(NCOMP[rate] * (K + TAIL),)`` (codeword-major layout).
+    The lower constituent's systematic channel is the interleaved systematic
+    LLRs for the ``K`` information positions, zero-padded over the ``TAIL``
+    termination steps (the lower code transmits no systematic there).  For
+    rate 1/2 the punctured parity positions become erasures (0.0).
 
     Args:
-        sys_bits: Systematic bits (length L).
-        p1_bits: Parity bits of the first constituent (length L).
-        p2_bits: Parity bits of the second constituent (length L; odd
-            positions may be ``-1`` erasure markers in punctured mode).
-        iterations: Number of turbo iterations (default 5).
-        p1_tail_bits: The 4 flush parity bits of the first constituent
-            (punctured frames), or ``None`` to treat the flush parity as
-            erasures (full rate‑1/3 frames, which carry no tail).
+        rx: Received channel LLRs (float64, 1-D).
+        rate: Code rate (``"1/2"``, ``"1/3"``, ``"1/4"`` or ``"1/6"``).
+        K: Payload length in bits.
+        perm: Interleaver permutation (int64 array of length ``K``).
 
     Returns:
-        The recovered payload bits.
+        Tuple ``(upper, lower)`` of float64 arrays of shape
+        ``(ncomp, K + TAIL)`` with component 0 = systematic.
     """
-    L = len(sys_bits)
-    sys_llr = _llr_array(sys_bits)
-    p1_llr = _llr_array(p1_bits + list(p1_tail_bits if p1_tail_bits is not None else [-1] * TAIL))
-    p2_llr = _llr_array(p2_bits + [-1] * TAIL)
-    if iterations <= 0:
-        return [0 if v >= 0 else 1 for v in sys_llr]
-
-    perm = np.asarray(qpp_perm(L), dtype=np.int64)
-    apriori = np.zeros(L, dtype=np.float64)
-    for _ in range(iterations):
-        # 1st constituent: systematic + apriori, parity p1
-        sys1 = sys_llr + apriori
-        post1 = _bcjr_kernel(
-            np.concatenate((sys1, np.zeros(TAIL, dtype=np.float64))),
-            p1_llr,
-            GEN,
-            L,
-        )
-        ext1 = post1 - sys1
-        # interleave: out[π(i)] = in[i]
-        iext1 = np.empty(L, dtype=np.float64)
-        iext1[perm] = ext1
-        inter_sys = np.empty(L, dtype=np.float64)
-        inter_sys[perm] = sys_llr
-
-        # 2nd constituent: interleaved systematic + interleaved extrinsic, parity p2
-        sys2 = inter_sys + iext1
-        post2 = _bcjr_kernel(
-            np.concatenate((sys2, np.zeros(TAIL, dtype=np.float64))),
-            p2_llr,
-            GEN,
-            L,
-        )
-        ext2 = post2 - sys2
-        # de-interleave: out[i] = in[π(i)]
-        apriori = ext2[perm]
-
-    final = sys_llr + apriori
-    return [0 if v >= 0 else 1 for v in final]
+    N = K + TAIL
+    rx2 = rx.reshape(N, NCOMP[rate])
+    sys = rx2[:, 0]
+    sys_int = np.concatenate([sys[perm], np.zeros(TAIL, dtype=np.float64)])
+    cw = np.arange(N)
+    if rate == "1/2":
+        upper = np.stack([sys, np.where(cw % 2 == 0, rx2[:, 1], 0.0)])
+        lower = np.stack([sys_int, np.where(cw % 2 == 1, rx2[:, 1], 0.0)])
+    elif rate == "1/3":
+        upper = np.stack([sys, rx2[:, 1]])
+        lower = np.stack([sys_int, rx2[:, 2]])
+    elif rate == "1/4":
+        upper = np.stack([sys, rx2[:, 1], rx2[:, 2]])
+        lower = np.stack([sys_int, rx2[:, 3]])
+    else:  # 1/6
+        upper = np.stack([sys, rx2[:, 1], rx2[:, 2], rx2[:, 3]])
+        lower = np.stack([sys_int, rx2[:, 4], rx2[:, 5]])
+    return upper, lower
 
 
-def _decode_core_rate16(
-    sys_bits: list[int],
-    a1_bits: list[int],
-    a2_bits: list[int],
-    a3_bits: list[int],
-    b1_bits: list[int],
-    b3_bits: list[int],
-    iterations: int,
-) -> list[int]:
-    """Iterative Log‑MAP decoding of one rate‑1/6 Turbo frame.
+def _turbo_decode_core(rx: np.ndarray, rate: str, K: int, iterations: int) -> np.ndarray:
+    """Iterative Log‑MAP decoding of one Turbo frame from channel LLRs.
 
-    Constituent A (natural order) contributes the ``G1, G2, G3`` parity
-    streams ``a1/a2/a3``, constituent B (interleaved order) the ``G1, G3``
-    streams ``b1/b3`` (CCSDS 131.0-B-4 §3.3.1).  Each list already carries its
-    4 flush parity bits at the end, which terminate the trellis at state 0.
+    Runs ``iterations`` turbo iterations: BCJR on the upper constituent with
+    the systematic+apriori LLRs, the extrinsic is interleaved and fed with
+    the interleaved systematic LLRs into the lower constituent's BCJR, and
+    the de-interleaved lower extrinsic becomes the next iteration's apriori.
+    The final hard decision uses the de-interleaved APP of the lower
+    constituent (``LLR ≤ 0 -> bit 1``).
 
     Args:
-        sys_bits: Systematic bits (length L).
-        a1_bits/a2_bits/a3_bits: Parity streams of constituent A
-            (length L + TAIL).
-        b1_bits/b3_bits: Parity streams of constituent B (length L + TAIL).
-        iterations: Number of turbo iterations.
+        rx: Received channel LLRs of the full transmitted sequence
+            (float64, length ``NCOMP[rate] * (K + TAIL)``).
+        rate: Code rate (``"1/2"``, ``"1/3"``, ``"1/4"`` or ``"1/6"``).
+        K: Payload length in bits.
+        iterations: Number of turbo iterations (>= 1).
 
     Returns:
-        The recovered payload bits.
+        The recovered payload bits (uint8 array of length ``K``).
     """
-    L = len(sys_bits)
-    sys_llr = _llr_array(sys_bits)
-    a_par = np.stack([_llr_array(a1_bits), _llr_array(a2_bits), _llr_array(a3_bits)])
-    b_par = np.stack([_llr_array(b1_bits), _llr_array(b3_bits)])
-    gens_a = np.array([GEN, GEN2, GEN3], dtype=np.int64)
-    gens_b = np.array([GEN, GEN3], dtype=np.int64)
-    if iterations <= 0:
-        return [0 if v >= 0 else 1 for v in sys_llr]
-
-    perm = np.asarray(qpp_perm(L), dtype=np.int64)
-    apriori = np.zeros(L, dtype=np.float64)
-    tail_zeros = np.zeros(TAIL, dtype=np.float64)
+    perm = np.asarray(ccsds_perm(K), dtype=np.int64)
+    upper_ch, lower_ch = _demux(rx, rate, K, perm)
+    ns_u, x_u, p0u, p1u = _build_trellis(_UPPER_GENS[rate])
+    ns_l, x_l, p0l, p1l = _build_trellis(_LOWER_GENS[rate])
+    la = np.zeros(K, dtype=np.float64)
+    app = np.zeros(K, dtype=np.float64)
     for _ in range(iterations):
-        # 1st constituent (natural order): systematic + apriori, 3 parities
-        sys1 = sys_llr + apriori
-        post1 = _bcjr_multi_kernel(
-            np.concatenate((sys1, tail_zeros)),
-            a_par,
-            gens_a,
-            L,
+        ext_u, _ = _bcjr_kernel(upper_ch, la, ns_u, x_u, p0u, p1u, K)
+        la_l = ext_u[perm]
+        ext_l, app_l = _bcjr_kernel(lower_ch, la_l, ns_l, x_l, p0l, p1l, K)
+        la = np.empty(K, dtype=np.float64)
+        la[perm] = ext_l
+        app = np.empty(K, dtype=np.float64)
+        app[perm] = app_l
+    return (app <= 0).astype(np.uint8)
+
+
+def _k_for_rate(stream_len: int, rate: str) -> int:
+    """Return ``K`` for a rate-*rate* stream of length *stream_len*."""
+    ncomp = NCOMP[rate]
+    if stream_len < ncomp * (TAIL + 1):
+        raise ValueError(f"Rate-{rate} stream too short: {stream_len} bits")
+    if stream_len % ncomp != 0:
+        raise ValueError(
+            f"Rate-{rate} stream length {stream_len} is not a multiple of {ncomp}"
         )
-        ext1 = post1 - sys1
-        # interleave: out[π(i)] = in[i]
-        iext1 = np.empty(L, dtype=np.float64)
-        iext1[perm] = ext1
-        inter_sys = np.empty(L, dtype=np.float64)
-        inter_sys[perm] = sys_llr
-
-        # 2nd constituent (interleaved order): systematic + extrinsic, 2 parities
-        sys2 = inter_sys + iext1
-        post2 = _bcjr_multi_kernel(
-            np.concatenate((sys2, tail_zeros)),
-            b_par,
-            gens_b,
-            L,
-        )
-        ext2 = post2 - sys2
-        # de-interleave: out[i] = in[π(i)]
-        apriori = ext2[perm]
-
-    final = sys_llr + apriori
-    return [0 if v >= 0 else 1 for v in final]
+    return stream_len // ncomp - TAIL
 
 
-def decode(  # noqa: C901  (rate auto-detection branches; golden-vector verified)
-    punctured_bits: list[int], iterations: int = 5, rate: str | None = None
-) -> list[int]:
-    """Decode a Turbo stream (punctured rate‑1/4, unpunctured rate‑1/3, or rate‑1/6).
+def _detect_rate_k(stream_len: int) -> tuple[str, int]:
+    """Auto-detect ``(rate, K)`` from a stream length for standard block lengths.
+
+    All CCSDS block lengths × rates yield distinct stream lengths
+    (``NCOMP[rate] * (K + TAIL)``), so the pair is uniquely determined.
+
+    Args:
+        stream_len: Encoded stream length in bits.
+
+    Returns:
+        The unique ``(rate, K)`` matching *stream_len*.
+
+    Raises:
+        ValueError: If no standard block length matches.
+    """
+    for K in STANDARD_K:
+        for rate, ncomp in NCOMP.items():
+            if ncomp * (K + TAIL) == stream_len:
+                return rate, K
+    raise ValueError(
+        f"Unrecognized Turbo stream length {stream_len}: "
+        "not a CCSDS block length (1784/3568/7136/8920/16384); pass rate="
+    )
+
+
+def decode(punctured_bits: list[int], iterations: int = 5, rate: str | None = None) -> list[int]:
+    """Decode a Turbo stream back into the payload bits.
 
     The stream format is detected from its length unless ``rate`` is given:
-    a punctured frame ends with the 4 flush bits, so if
-    ``payload_len_from_punctured(len - 4)`` yields a valid payload length the
-    input is decoded as punctured; otherwise a length divisible by 3 is
-    decoded as a full rate‑1/3 frame.  Rate‑1/6 streams are **not**
-    auto‑detected (their length can coincide with punctured rate‑1/4 frames);
-    pass ``rate="1/6"`` explicitly.
+    the length ``NCOMP[rate] * (K + TAIL)`` uniquely identifies ``(rate, K)``
+    for all CCSDS block lengths, so ``rate`` only needs to be passed for
+    non-standard block lengths.  Input bits are hard 0/1 symbols (LLR scale
+    ±1.0, positive = bit 0); erasures (any other value) map to LLR 0.0.
 
     Args:
         punctured_bits: Encoded bit stream (each element 0 or 1).
-        iterations: Number of turbo iterations (default 5); 0 skips the MAP
-            loop and returns the systematic bits.
-        rate: Optional explicit rate string (``"1/6"``); bypasses
-            length-based detection.
+        iterations: Number of turbo iterations (default 5); ``0`` skips the
+            MAP loop and returns the systematic bits unchanged.
+        rate: Optional explicit rate string (``"1/2"``, ``"1/3"``, ``"1/4"``
+            or ``"1/6"``); bypasses length-based detection.
 
     Returns:
         The recovered payload bits.
@@ -564,110 +489,54 @@ def decode(  # noqa: C901  (rate auto-detection branches; golden-vector verified
     stream = list(punctured_bits)
     if not stream:
         return []
-    if rate == "1/6":
-        # Rate‑1/6 layout: x + pA1 + pA2 + pA3 + pB1 + pB3
-        # followed by flush parity bits (4 each: fA1, fA2, fA3, fB1, fB3).
-        total = len(stream)
-        if total < 20 or (total - 20) % 6 != 0:
-            raise ValueError(f"Invalid rate-1/6 stream length {total}: expected 6*L + 20")
-        L = (total - 20) // 6
-        x = stream[:L]
-        pA1 = stream[L : 2 * L]
-        pA2 = stream[2 * L : 3 * L]
-        pA3 = stream[3 * L : 4 * L]
-        pB1 = stream[4 * L : 5 * L]
-        pB3 = stream[5 * L : 6 * L]
-        fA1 = stream[6 * L : 6 * L + TAIL]
-        fA2 = stream[6 * L + TAIL : 6 * L + 2 * TAIL]
-        fA3 = stream[6 * L + 2 * TAIL : 6 * L + 3 * TAIL]
-        fB1 = stream[6 * L + 3 * TAIL : 6 * L + 4 * TAIL]
-        fB3 = stream[6 * L + 4 * TAIL : 6 * L + 5 * TAIL]
-        return _decode_core_rate16(
-            x,
-            pA1 + fA1,
-            pA2 + fA2,
-            pA3 + fA3,
-            pB1 + fB1,
-            pB3 + fB3,
-            iterations,
-        )
-    # Try punctured (rate‑1/4) detection first
-    try:
-        L = payload_len_from_punctured(len(stream) - TAIL)
-    except ValueError:
-        L = None
-    if L is not None:
-        # punctured frame: systematic + parity1 + even parity2 + 4 flush bits
-        sys = stream[:L]
-        p1 = stream[L : 2 * L]
-        p2_filt = stream[2 * L : 2 * L + (L + 1) // 2]
-        tail = stream[2 * L + (L + 1) // 2 : 2 * L + (L + 1) // 2 + TAIL]
-        # odd parity2 positions were punctured → erasures (-1 markers)
-        p2: list[int] = []
-        f_idx = 0
-        for i in range(L):
-            if i % 2 == 0:
-                p2.append(p2_filt[f_idx])
-                f_idx += 1
-            else:
-                p2.append(-1)
-        return _decode_core(sys, p1, p2, iterations, p1_tail_bits=tail)
-    # Try half‑rate (1/2) detection: systematic + parity1 + 4‑flush tail
-    if (len(stream) - TAIL) % 2 == 0:
-        L_half = (len(stream) - TAIL) // 2
-        sys = stream[:L_half]
-        p1 = stream[L_half : 2 * L_half]
-        tail = stream[2 * L_half : 2 * L_half + TAIL]
-        # Verify parity (fallback – no error correction); on mismatch fall
-        # through to the rate‑1/3 interpretation instead of raising, since a
-        # full rate‑1/3 frame of even length also satisfies the length check.
-        expected = _rsc_parity(sys, TAIL)[0] + tail
-        if expected == p1 + tail:
-            return sys
-    # If not punctured nor half‑rate, fall back to full rate‑1/3
-    if len(stream) % 3 != 0:
-        raise ValueError(
-            "Unrecognized Turbo stream: neither punctured (rate-1/4), "
-            "half‑rate (1/2) nor full (rate-1/3)"
-        )
-    # unpunctured frame: systematic + parity1 + parity2 (no tail transmitted)
-    L = len(stream) // 3
-    return _decode_core(stream[:L], stream[L : 2 * L], stream[2 * L :], iterations)
+    if rate is None:
+        rate, K = _detect_rate_k(len(stream))
+    else:
+        if rate not in NCOMP:
+            raise ValueError(f"Unsupported Turbo code rate: {rate}")
+        K = _k_for_rate(len(stream), rate)
+    if iterations <= 0:
+        return stream[0::NCOMP[rate]][:K]
+    rx = _llr_array(stream)
+    return _turbo_decode_core(rx, rate, K, iterations).tolist()
 
 
 def decode_unpunctured(turbo_bits: list[int], iterations: int = 3) -> list[int]:
     """Decode a full rate‑1/3 (unpunctured) Turbo stream.
 
+    A rate‑1/3 frame has length ``3 * (K + 4)``; since ``K`` is a multiple of
+    8, the frame length is ``3K + 12 ≡ 12 (mod 24)`` and has 4 trailing
+    padding bits when packed into whole bytes.  The true length is the unique
+    candidate ``T`` in ``[len-7, len]`` satisfying ``T > 24`` and
+    ``T ≡ 12 (mod 24)``.
+
     Args:
-        turbo_bits: Encoded bit stream ``systematic + parity1 + parity2``
-            (length a multiple of 3).
+        turbo_bits: Encoded bit stream (possibly byte-padded).
         iterations: Number of turbo iterations (default 3).
 
     Returns:
         The recovered payload bits.
     """
-    if len(turbo_bits) % 3 != 0:
-        raise ValueError("Unpunctured Turbo stream length must be a multiple of 3")
-    N = len(turbo_bits) // 3
-    return _decode_core(
-        list(turbo_bits)[:N],
-        list(turbo_bits)[N : 2 * N],
-        list(turbo_bits)[2 * N :],
-        iterations,
-    )
+    n = len(turbo_bits)
+    for k in range(8):
+        t = n - k
+        if t > 24 and (t - 12) % 24 == 0:
+            return decode(turbo_bits[:t], iterations=iterations, rate="1/3")
+    raise ValueError("Unrecognized rate-1/3 stream: no valid length within the last 8 bits")
 
 
 def decode_padded_rate16(bits: list[int]) -> list[int]:
     """Decode a byte-padded rate‑1/6 stream (CLI helper).
 
-    A rate‑1/6 frame has length ``6*L + 20``, which for byte‑aligned payloads
-    (``L ≡ 0 mod 8``) is always congruent to 4 mod 8, so the CLI packs 4
-    trailing padding bits.  The true length is the unique candidate ``T`` in
-    ``[len-7, len]`` satisfying ``T ≡ 20 (mod 6)``.
+    A rate‑1/6 frame has length ``6 * (K + 4)``; since ``K`` is a multiple of
+    8, the frame length is ``6K + 24 ≡ 24 (mod 48)`` and always a multiple of
+    8 bits.  Callers that packed the stream into whole bytes may append up to
+    7 trailing padding bits, so the true length is the unique candidate
+    ``T`` in ``[len-7, len]`` satisfying ``T > 24`` and ``T ≡ 24 (mod 48)``.
     """
     n = len(bits)
     for k in range(8):
         t = n - k
-        if t >= 20 and (t - 20) % 6 == 0:
+        if t > 24 and (t - 24) % 48 == 0:
             return decode(bits[:t], rate="1/6")
     raise ValueError("Unrecognized rate-1/6 stream: no valid length within the last 8 bits")
