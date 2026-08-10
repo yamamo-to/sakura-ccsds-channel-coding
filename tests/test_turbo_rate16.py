@@ -5,7 +5,14 @@ import random
 import numpy as np
 import pytest
 
-from ccsds_codec.turbo import GEN, decode, encode, _bcjr_kernel, _bcjr_multi_kernel
+from ccsds_codec.turbo import (
+    GEN,
+    GEN_SYS,
+    _bcjr_kernel,
+    _build_trellis,
+    decode,
+    encode,
+)
 
 RATE16_LENGTHS = [8, 16, 32, 64]
 
@@ -14,16 +21,17 @@ RATE16_LENGTHS = [8, 16, 32, 64]
 def test_rate16_roundtrip(length):
     bits = [random.randint(0, 1) for _ in range(length)]
     enc = encode(bits, rate="1/6")
-    assert len(enc) == 6 * length + 20
+    assert len(enc) == 6 * (length + 4)
     dec = decode(enc, rate="1/6", iterations=5)
     assert dec == bits
 
 
-def test_rate16_systematic_prefix():
-    # the first L bits of the stream are the systematic payload
-    bits = [1, 0, 1, 1, 0]
+def test_rate16_systematic_stride():
+    # the systematic payload occupies the first K stride-6 positions
+    # (codeword-major layout); the remaining 4 are termination tail bits
+    bits = [1, 0, 1, 1, 0, 1, 0, 0]
     enc = encode(bits, rate="1/6")
-    assert enc[:5] == bits
+    assert enc[0::6][: len(bits)] == bits
 
 
 @pytest.mark.parametrize("length", RATE16_LENGTHS)
@@ -39,8 +47,8 @@ def test_rate16_corrects_flips(length):
 
 
 def test_rate16_requires_explicit_rate():
-    # length-based detection cannot distinguish rate-1/6 frames: without the
-    # explicit rate the stream is not recognized as rate-1/6
+    # length-based auto-detection only recognises the CCSDS standard block
+    # lengths; K=16 is non-standard so the rate must be given explicitly
     bits = [random.randint(0, 1) for _ in range(16)]
     enc = encode(bits, rate="1/6")
     with pytest.raises(ValueError):
@@ -59,12 +67,29 @@ def test_rate16_empty():
     assert decode([], rate="1/6") == []
 
 
-def test_bcjr_multi_kernel_matches_single():
-    # the multi-parity kernel with one generator equals the 1-parity kernel
-    sys_llr = np.array([1.0, -1.0, 1.0, 1.0, -1.0, 0.0, 0.0, 0.0])
-    par_llr = np.array([1.0, 1.0, -1.0, 1.0, -1.0, 0.0, 0.0, 0.0])
-    single = _bcjr_kernel(sys_llr, par_llr, GEN, 5)
-    multi = _bcjr_multi_kernel(
-        sys_llr, par_llr.reshape(1, -1), np.array([GEN], dtype=np.int64), 5
-    )
-    assert np.allclose(single, multi)
+def test_bcjr_kernel_channel_matrix_shapes():
+    # the Log-MAP kernel consumes a (ncomp, N) channel matrix and returns
+    # finite extrinsic/APP LLRs for the information positions
+    ns, x, pred0, pred1 = _build_trellis([GEN_SYS, GEN])
+    data_len = 8
+    n_parity = 2
+    N = data_len + 4
+    ch = np.zeros((n_parity, N), dtype=np.float64)  # punctured positions 0.0
+    la = np.zeros(data_len, dtype=np.float64)
+    ext, app = _bcjr_kernel(ch, la, ns, x, pred0, pred1, data_len)
+    assert ext.shape == (data_len,)
+    assert app.shape == (data_len,)
+    assert np.all(np.isfinite(ext))
+    assert np.all(np.isfinite(app))
+
+
+def test_bcjr_kernel_clean_channel_decodes_zeros():
+    # a clean all-zero channel (bit 0 -> +1 LLR) must yield positive APP LLRs
+    ns, x, pred0, pred1 = _build_trellis([GEN_SYS, GEN])
+    data_len = 8
+    n_parity = 2
+    N = data_len + 4
+    ch = np.ones((n_parity, N), dtype=np.float64)
+    la = np.zeros(data_len, dtype=np.float64)
+    ext, app = _bcjr_kernel(ch, la, ns, x, pred0, pred1, data_len)
+    assert np.all(app > 0.0)

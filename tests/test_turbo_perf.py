@@ -1,8 +1,8 @@
 """Performance benchmark for the CCSDS Turbo codec.
 
-The test generates a random payload of 1 000 bits, encodes it with puncturing
-(rate 1/4), and measures the time required for a full Log‑MAP decode with three
-iterations. The goal is to keep the decode time below 0.5 seconds on a typical
+The test generates a random payload of 1 000 bits, encodes it with puncturing
+(rate 1/2), and measures the time required for a full Log-MAP decode with three
+iterations. The goal is to keep the decode time below 0.5 seconds on a typical
 CI runner.
 """
 
@@ -17,10 +17,11 @@ def _random_bits(length: int) -> list[int]:
 
 
 def test_decode_performance():
-    bits = _random_bits(1_000)
-    punctured = encode(bits, puncture=True)
+    bits = _random_bits(1_000)  # multiple of 8, bijective §6.3g permutation
+    punctured = encode(bits, puncture=True)  # rate 1/2
     start = time.perf_counter()
-    decoded = decode(punctured, iterations=3)
+    # K=1000 is non-standard, so the rate must be given explicitly
+    decoded = decode(punctured, iterations=3, rate="1/2")
     duration = time.perf_counter() - start
     # Basic sanity check – decoded payload must match original
     assert decoded == bits

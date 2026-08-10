@@ -73,5 +73,5 @@ def test_turbo_codec_rate16_passthrough():
     bits = [random.randint(0, 1) for _ in range(64)]
     codec = TurboCodec(TurboConfig(rate="1/6"))
     encoded = codec.encode(bits)
-    assert len(encoded) == 6 * 64 + 20
+    assert len(encoded) == 6 * (64 + 4)
     assert codec.decode(encoded) == bits
