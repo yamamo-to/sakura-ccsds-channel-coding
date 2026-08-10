@@ -174,7 +174,6 @@ def encode(bits: list[int], puncture: bool = False, rate: str | None = None) -> 
 
     K = len(bits)
     ibits = ccsds_interleaver(bits)
-    ncomp = NCOMP[effective_rate]
 
     if effective_rate in ("1/2", "1/3"):
         upper = _rsc_streams(bits, _UPPER_GENS[effective_rate])  # [sys, G1]
