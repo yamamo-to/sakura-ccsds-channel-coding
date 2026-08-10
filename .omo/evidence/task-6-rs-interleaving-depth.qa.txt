@@ -1,0 +1,26 @@
+---QA: ruff check---
+All checks passed!
+exit=0
+---QA: encode.__doc__ shows depth param + 4.3.5 ref (plan T6 QA)---
+Encode *data* with the RS(255,223) code and optional interleaving.
+
+The input is partitioned into groups of ``RS_K * depth`` bytes (the final
+group is zero‑padded).  Each group is split into *depth* strands using
+:func:`_rs_split_stride`, each strand is encoded with :func:`encode_block`,
+and the resulting codewords are merged column‑major via
+:func:`_rs_merge_column_major` as specified by CCSDS 131.0‑B‑4 §4.3.5
+(Figure 4‑2).  A depth of ``1`` preserves the original behaviour.
+
+Args:
+    data: Raw bytes to encode (arbitrary length; the final partial group
+        is zero‑padded to ``RS_K * depth`` bytes).
+    depth: Interleaving depth, 1..5 (default 1).
+
+Returns:
+    Encoded bytes: ``RS_N * depth`` bytes per input group of
+    ``RS_K * depth`` bytes.
+
+---QA: RSCodec(RSConfig(depth=5)) roundtrip, data len = 223*5---
+roundtrip OK, enc len=1275
+---QA: RSCodec depth=1 preserves legacy behaviour---
+depth=1 roundtrip OK

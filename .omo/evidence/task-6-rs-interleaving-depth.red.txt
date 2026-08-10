@@ -1,0 +1,4 @@
+---RED: --depth occurrences in README (expect 0)---
+0
+---RED: RSCodec in README Python API (expect 0)---
+1 (only in Source layout comment, no usage example)

@@ -32,6 +32,9 @@ __all__ = ["RSCodec", "ConvCodec", "TurboCodec", "Randomizer"]
 class RSCodec:
     """Reed‑Solomon (255,223) codec wrapper.
 
+    Applies block interleaving of depth 1…5 as specified by CCSDS 131.0‑B‑4
+    §4.3.5 (Figure 4‑2).  A depth of 1 preserves the original behaviour.
+
     Args:
         config: Codec settings (interleaving depth). Defaults to ``RSConfig()``, i.e. depth 1.
     """

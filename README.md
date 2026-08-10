@@ -49,17 +49,28 @@ python -m ccsds_codec turbo-enc --rate 1/6 < payload.bin > turbo.bin
 python -m ccsds_codec turbo-dec --rate 1/6 < turbo.bin > recovered.bin
 ```
 
+Reed–Solomon interleaving depth (1…5, default 1) is selected with `--depth`:
+
+```bash
+python -m ccsds_codec rs-enc --depth 5 < payload.bin > encoded.bin
+python -m ccsds_codec rs-dec --depth 5 < encoded.bin > recovered.bin
+```
+
 ## Python API
 
 The high‑level API lives in `ccsds_codec.api` and is configured with value
 objects from `ccsds_codec.config`:
 
 ```python
-from ccsds_codec import ConvCodec, ConvConfig, TurboCodec, TurboConfig
+from ccsds_codec import ConvCodec, ConvConfig, RSCodec, RSConfig, TurboCodec, TurboConfig
 
 conv = ConvCodec(ConvConfig(rate="3/4"))
 encoded = conv.encode(data)          # list[int] bits in, bits out
 decoded = conv.decode(encoded)
+
+rs = RSCodec(RSConfig(depth=5))
+encoded = rs.encode(data)            # bytes in, bytes out
+decoded = rs.decode(encoded)         # round-trips when len(data) % (223 * depth) == 0
 
 turbo = TurboCodec(TurboConfig(rate="1/3"))
 encoded = turbo.encode(data, iterations=5)

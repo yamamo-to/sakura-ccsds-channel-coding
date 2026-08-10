@@ -92,8 +92,17 @@ def encode(data: bytes, depth: int = 1) -> bytes:
     group is zero‑padded).  Each group is split into *depth* strands using
     :func:`_rs_split_stride`, each strand is encoded with :func:`encode_block`,
     and the resulting codewords are merged column‑major via
-    :func:`_rs_merge_column_major` as specified by CCSDS 131.0‑B‑4 §4.3.5
-    (Figure 4‑2).  A depth of ``1`` preserves the original behaviour.
+    :func:`_rs_merge_column_major` as specified by CCSDS 131.0‑B‑4 §4.3.5
+    (Figure 4‑2).  A depth of ``1`` preserves the original behaviour.
+
+    Args:
+        data: Raw bytes to encode (arbitrary length; the final partial group
+            is zero‑padded to ``RS_K * depth`` bytes).
+        depth: Interleaving depth, 1..5 (default 1).
+
+    Returns:
+        Encoded bytes: ``RS_N * depth`` bytes per input group of
+        ``RS_K * depth`` bytes.
     """
     if not (1 <= depth <= 5):
         raise ValueError(f"Interleaving depth must be between 1 and 5, got {depth}")
@@ -162,8 +171,17 @@ def decode(encoded: bytes, depth: int = 1) -> bytes:
     *depth* individual codewords using :func:`_rs_split_stride`, decode each
     codeword with :func:`decode_block` (or fall back to the data portion on
     ``ValueError``), and finally merge the decoded data blocks column‑major via
-    :func:`_rs_merge_column_major`.  This implements CCSDS 131.0‑B‑4 §4.3.5
-    (Figure 4‑2).  A *depth* of ``1`` preserves the original behaviour.
+    :func:`_rs_merge_column_major`.  This implements CCSDS 131.0‑B‑4 §4.3.5
+    (Figure 4‑2).  A *depth* of ``1`` preserves the original behaviour.
+
+    Args:
+        encoded: Encoded bytes; length must be a multiple of ``RS_N * depth``.
+        depth: Interleaving depth, 1..5 (default 1).
+
+    Returns:
+        Decoded bytes: ``RS_K * depth`` per input group, including any zero
+        padding from the encoder.  Compare ``dec[:len(original)]`` against the
+        original data.
     """
     if not (1 <= depth <= 5):
         raise ValueError(f"Interleaving depth must be between 1 and 5, got {depth}")
