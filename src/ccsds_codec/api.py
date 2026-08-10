@@ -4,7 +4,7 @@ Wraps the functional core (:mod:`ccsds_codec.core`) in small, configurable
 classes.  Each codec is configured with a frozen dataclass (see
 :mod:`ccsds_codec.config`), keeping the settings explicit and typed:
 
-* :class:`RSCodec` – Reed‑Solomon (255,223), stateless.
+* :class:`RSCodec` – Reed‑Solomon (255,223), configured by :class:`RSConfig`.
 * :class:`ConvCodec` – convolutional coding, configured by :class:`ConvConfig`.
 * :class:`TurboCodec` – Turbo coding, configured by :class:`TurboConfig`.
 * :class:`Randomizer` – CCSDS scrambler, stateless.
@@ -15,7 +15,7 @@ The low-level functions remain available from the codec modules
 
 from __future__ import annotations
 
-from .config import ConvConfig, TurboConfig
+from .config import ConvConfig, RSConfig, TurboConfig
 from .core.convolutional import encode as _conv_encode
 from .core.convolutional import viterbi_decode as _viterbi_decode
 from .core.randomizer import descramble as _descramble
@@ -32,19 +32,20 @@ __all__ = ["RSCodec", "ConvCodec", "TurboCodec", "Randomizer"]
 class RSCodec:
     """Reed‑Solomon (255,223) codec wrapper.
 
-    Stateless: encoding/decoding operate on whole byte streams and are exposed
-    as static methods.
+    Args:
+        config: Codec settings (interleaving depth). Defaults to ``RSConfig()``, i.e. depth 1.
     """
 
-    @staticmethod
-    def encode(data: bytes) -> bytes:
-        """Encode *data*, splitting it into ``RS_K``-byte blocks."""
-        return _rs_encode(data)
+    def __init__(self, config: RSConfig | None = None) -> None:
+        self.config = config or RSConfig()
 
-    @staticmethod
-    def decode(encoded: bytes) -> bytes:
-        """Decode *encoded* back into the data portion of each block."""
-        return _rs_decode(encoded)
+    def encode(self, data: bytes) -> bytes:
+        """Encode *data* at the configured interleaving depth."""
+        return _rs_encode(data, depth=self.config.depth)
+
+    def decode(self, encoded: bytes) -> bytes:
+        """Decode *encoded* at the configured interleaving depth."""
+        return _rs_decode(encoded, depth=self.config.depth)
 
 
 class ConvCodec:

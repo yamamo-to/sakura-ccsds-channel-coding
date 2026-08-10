@@ -1,0 +1,33 @@
+....F.FF.                                                                [100%]
+=================================== FAILURES ===================================
+___________________________ test_rs_codec_roundtrip ____________________________
+
+    def test_rs_codec_roundtrip():
+>       c = RSCodec(RSConfig(depth=3))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: RSCodec() takes no arguments
+
+tests/test_rs_config.py:37: TypeError
+________________________ test_rs_codec_different_depths ________________________
+
+    def test_rs_codec_different_depths():
+        data = os.urandom(800)  # length >= 600
+>       enc1 = RSCodec(RSConfig(depth=1)).encode(data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: RSCodec() takes no arguments
+
+tests/test_rs_config.py:50: TypeError
+_________________________ test_rs_codec_default_config _________________________
+
+    def test_rs_codec_default_config():
+        c = RSCodec()
+>       assert isinstance(c.config, RSConfig)
+                          ^^^^^^^^
+E       AttributeError: 'RSCodec' object has no attribute 'config'
+
+tests/test_rs_config.py:56: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_rs_config.py::test_rs_codec_roundtrip - TypeError: RSCodec(...
+FAILED tests/test_rs_config.py::test_rs_codec_different_depths - TypeError: R...
+FAILED tests/test_rs_config.py::test_rs_codec_default_config - AttributeError...
+3 failed, 6 passed in 0.37s
