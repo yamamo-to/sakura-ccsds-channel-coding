@@ -67,19 +67,46 @@ def encode_block(data_block: bytes) -> bytes:
     return data_block + bytes(parity)
 
 
-def encode(data: bytes) -> bytes:
-    """Encode *data* with the RS(255,223) code.
+def _rs_split_stride(data: bytes, depth: int) -> List[bytes]:
+    """Split *data* into *depth* blocks by stride.
 
-    Data is split into ``RS_K``‑byte blocks (the final block is zero‑padded) and
-    each block is encoded using the internal encoder.  The resulting stream is a
-    concatenation of ``RS_N``‑byte codewords.
+    Returns a list where each element contains every *depth*‑th byte starting at
+    the corresponding offset, i.e. ``[data[i::depth] for i in range(depth)]``.
     """
+    return [data[i::depth] for i in range(depth)]
+
+
+def _rs_merge_column_major(blocks: List[bytes]) -> bytes:
+    """Merge *blocks* (all of equal length) in column‑major order.
+
+    The first bytes of each block are concatenated, then the second bytes, and
+    so on – effectively the transpose of a matrix where each block is a row.
+    """
+    return b"".join(bytes(t) for t in zip(*blocks))
+
+
+def encode(data: bytes, depth: int = 1) -> bytes:
+    """Encode *data* with the RS(255,223) code and optional interleaving.
+
+    The input is partitioned into groups of ``RS_K * depth`` bytes (the final
+    group is zero‑padded).  Each group is split into *depth* strands using
+    :func:`_rs_split_stride`, each strand is encoded with :func:`encode_block`,
+    and the resulting codewords are merged column‑major via
+    :func:`_rs_merge_column_major` as specified by CCSDS 131.0‑B‑4 §4.3.5
+    (Figure 4‑2).  A depth of ``1`` preserves the original behaviour.
+    """
+    if not (1 <= depth <= 5):
+        raise ValueError(f"Interleaving depth must be between 1 and 5, got {depth}")
+    if not data:
+        return b""
     out = bytearray()
-    for i in range(0, len(data), RS_K):
-        block = data[i : i + RS_K]
-        if len(block) < RS_K:
-            block = block.ljust(RS_K, b"\x00")
-        out.extend(encode_block(block))
+    group_size = RS_K * depth
+    for i in range(0, len(data), group_size):
+        group = data[i : i + group_size]
+        padded = group.ljust(group_size, b"\x00")
+        blocks = _rs_split_stride(padded, depth)
+        encoded_blocks = [encode_block(b) for b in blocks]
+        out.extend(_rs_merge_column_major(encoded_blocks))
     return bytes(out)
 
 
