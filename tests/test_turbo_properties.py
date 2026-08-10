@@ -1,21 +1,24 @@
-"""Additional property‑based tests for the CCSDS Turbo codec implementation.
+"""Additional property-based tests for the CCSDS Turbo codec implementation.
 
 These tests verify that the interleaver is a permutation, that its inverse works,
-and that the puncturing length calculation follows the CCSDS formula.
+that the encoded stream length follows the CCSDS formula ``NCOMP[rate] * (K + 4)``,
+and that the length-based rate auto-detection is unambiguous.
 """
 
 import pytest
+
 from ccsds_codec.turbo import (
-    ccsds_interleaver,
+    NCOMP,
+    STANDARD_K,
     ccsds_deinterleaver,
-    payload_len_from_punctured,
-    _puncture,
-    _depuncture,
+    ccsds_interleaver,
+    encode,
+    _detect_rate_k,
 )
 
 
 def test_interleaver_is_permutation():
-    bits = list(range(50))
+    bits = list(range(200))  # multiple of 8 with a bijective §6.3g permutation
     inter = ccsds_interleaver(bits)
     # After interleaving, sorted output should equal original sorted bits
     assert sorted(inter) == sorted(bits)
@@ -24,30 +27,29 @@ def test_interleaver_is_permutation():
 
 
 def test_deinterleaver_is_inverse():
-    bits = list(range(73))  # arbitrary length
+    bits = list(range(200))
     assert ccsds_deinterleaver(ccsds_interleaver(bits)) == bits
     assert ccsds_interleaver(ccsds_deinterleaver(bits)) == bits
 
 
-@pytest.mark.parametrize("L", [1, 2, 3, 4, 5, 10, 27, 50, 123])
-def test_payload_len_from_punctured_roundtrip(L):
-    # Build a full (rate‑1/3) stream of length 3*L, then puncture
-    full = list(range(3 * L))
-    punctured = _puncture(full)
-    recovered = payload_len_from_punctured(len(punctured))
-    assert recovered == L
+@pytest.mark.parametrize("rate", ["1/2", "1/3", "1/4", "1/6"])
+def test_stream_length_formula(rate):
+    # each rate produces NCOMP[rate] * (K + 4) bits (TAIL = 4 termination)
+    K = 64
+    enc = encode([0] * K, rate=rate)
+    assert len(enc) == NCOMP[rate] * (K + 4)
 
 
-def test_depuncture_reconstructs_full_length():
-    L = 17
-    full = list(range(3 * L))
-    punct = _puncture(full)
-    recon = _depuncture(punct)
-    # The reconstructed stream should have the same systematic and parity1
-    # parts; parity2 bits for odd indices are zero.
-    assert recon[:L] == full[:L]                     # systematic
-    assert recon[L:2 * L] == full[L:2 * L]               # parity1
-    # parity2 odd positions should be zero
-    for i in range(L):
-        expected = full[2 * L + i] if i % 2 == 0 else 0
-        assert recon[2 * L + i] == expected
+def test_rate_autodetect_is_unique_and_correct():
+    # all 20 standard (rate, K) pairs map to distinct stream lengths
+    lengths = {NCOMP[r] * (K + 4) for r in NCOMP for K in STANDARD_K}
+    assert len(lengths) == len(NCOMP) * len(STANDARD_K)
+    for rate in NCOMP:
+        for K in STANDARD_K:
+            stream_len = NCOMP[rate] * (K + 4)
+            assert _detect_rate_k(stream_len) == (rate, K)
+
+
+def test_rate_autodetect_rejects_unknown_length():
+    with pytest.raises(ValueError):
+        _detect_rate_k(12345)
