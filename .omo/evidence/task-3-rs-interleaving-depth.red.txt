@@ -1,0 +1,114 @@
+.......FFFFFFFFF                                                         [100%]
+=================================== FAILURES ===================================
+______________________________ test_roundtrip[1] _______________________________
+
+depth = 1
+
+    @pytest.mark.parametrize("depth", [1, 2, 3, 4, 5])
+    def test_roundtrip(depth):
+        for size in [1, 100, RS_K * depth, RS_K * depth + 17, 2 * RS_K * depth]:
+            data = os.urandom(size)
+>           dec = decode(encode(data, depth), depth)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:43: TypeError
+______________________________ test_roundtrip[2] _______________________________
+
+depth = 2
+
+    @pytest.mark.parametrize("depth", [1, 2, 3, 4, 5])
+    def test_roundtrip(depth):
+        for size in [1, 100, RS_K * depth, RS_K * depth + 17, 2 * RS_K * depth]:
+            data = os.urandom(size)
+>           dec = decode(encode(data, depth), depth)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:43: TypeError
+______________________________ test_roundtrip[3] _______________________________
+
+depth = 3
+
+    @pytest.mark.parametrize("depth", [1, 2, 3, 4, 5])
+    def test_roundtrip(depth):
+        for size in [1, 100, RS_K * depth, RS_K * depth + 17, 2 * RS_K * depth]:
+            data = os.urandom(size)
+>           dec = decode(encode(data, depth), depth)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:43: TypeError
+______________________________ test_roundtrip[4] _______________________________
+
+depth = 4
+
+    @pytest.mark.parametrize("depth", [1, 2, 3, 4, 5])
+    def test_roundtrip(depth):
+        for size in [1, 100, RS_K * depth, RS_K * depth + 17, 2 * RS_K * depth]:
+            data = os.urandom(size)
+>           dec = decode(encode(data, depth), depth)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:43: TypeError
+______________________________ test_roundtrip[5] _______________________________
+
+depth = 5
+
+    @pytest.mark.parametrize("depth", [1, 2, 3, 4, 5])
+    def test_roundtrip(depth):
+        for size in [1, 100, RS_K * depth, RS_K * depth + 17, 2 * RS_K * depth]:
+            data = os.urandom(size)
+>           dec = decode(encode(data, depth), depth)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:43: TypeError
+_____________________ test_depth_one_decode_compatibility ______________________
+
+    def test_depth_one_decode_compatibility():
+        for size in [0, 1, 10, 223, 500, 1000]:
+            data = os.urandom(size)
+>           assert decode(encode(data), 1) == decode(encode(data))
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:50: TypeError
+_________________________ test_decode_malformed_length _________________________
+
+    def test_decode_malformed_length():
+        with pytest.raises(ValueError):
+>           decode(b"\x00" * 254, 2)  # 254 % (255 * 2) != 0
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:55: TypeError
+________________ test_decode_mismatched_depth_does_not_recover _________________
+
+    def test_decode_mismatched_depth_does_not_recover():
+        data = os.urandom(RS_K * 3 + 50)
+>       assert decode(encode(data, 3), 1) != data
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:60: TypeError
+___________________________ test_decode_empty_input ____________________________
+
+    def test_decode_empty_input():
+>       assert decode(b"", 2) == b""
+               ^^^^^^^^^^^^^^
+E       TypeError: decode() takes 1 positional argument but 2 were given
+
+tests/test_rs_interleave.py:65: TypeError
+=========================== short test summary info ============================
+FAILED tests/test_rs_interleave.py::test_roundtrip[1] - TypeError: decode() t...
+FAILED tests/test_rs_interleave.py::test_roundtrip[2] - TypeError: decode() t...
+FAILED tests/test_rs_interleave.py::test_roundtrip[3] - TypeError: decode() t...
+FAILED tests/test_rs_interleave.py::test_roundtrip[4] - TypeError: decode() t...
+FAILED tests/test_rs_interleave.py::test_roundtrip[5] - TypeError: decode() t...
+FAILED tests/test_rs_interleave.py::test_depth_one_decode_compatibility - Typ...
+FAILED tests/test_rs_interleave.py::test_decode_malformed_length - TypeError:...
+FAILED tests/test_rs_interleave.py::test_decode_mismatched_depth_does_not_recover
+FAILED tests/test_rs_interleave.py::test_decode_empty_input - TypeError: deco...
+9 failed, 7 passed in 0.44s

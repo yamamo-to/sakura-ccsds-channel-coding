@@ -1,9 +1,9 @@
-"""Tests for RS encoder interleaving depth (I=1..5)."""
+"""Tests for RS encoder/decoder interleaving depth (I=1..5)."""
 
 import os
 import pytest
 
-from ccsds_codec.rs import encode, encode_block, RS_K, RS_SYMS
+from ccsds_codec.rs import decode, encode, encode_block, RS_K, RS_N, RS_SYMS
 
 def test_depth_one_compatibility():
     for size in [0, 1, 10, 223, 500, 1000]:
@@ -34,3 +34,34 @@ def test_invalid_depth():
         encode(data, 0)
     with pytest.raises(ValueError):
         encode(data, 6)
+
+
+@pytest.mark.parametrize("depth", [1, 2, 3, 4, 5])
+def test_roundtrip(depth):
+    for size in [1, 100, RS_K * depth, RS_K * depth + 17, 2 * RS_K * depth]:
+        data = os.urandom(size)
+        dec = decode(encode(data, depth), depth)
+        assert dec[:len(data)] == data
+
+
+def test_depth_one_decode_compatibility():
+    for size in [0, 1, 10, 223, 500, 1000]:
+        data = os.urandom(size)
+        assert decode(encode(data), 1) == decode(encode(data))
+
+
+def test_decode_malformed_length():
+    with pytest.raises(ValueError):
+        decode(b"\x00" * 254, 2)  # 254 % (255 * 2) != 0
+
+
+def test_decode_mismatched_depth_does_not_recover():
+    # RS_K * 3 bytes encodes to 765 bytes for both depth 1 and depth 3,
+    # so the length checks pass for either decode depth (255 | 765, 765 | 765).
+    data = os.urandom(RS_K * 3)
+    assert decode(encode(data, 3), 1) != data
+    assert decode(encode(data, 1), 3) != data
+
+
+def test_decode_empty_input():
+    assert decode(b"", 2) == b""

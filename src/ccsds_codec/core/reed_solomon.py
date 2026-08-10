@@ -152,24 +152,38 @@ def decode_block(encoded_block: bytes) -> bytes:
         return _fallback_decode_block(encoded_block)
 
 
-def decode(encoded: bytes) -> bytes:
-    """Decode *encoded* data produced by :func:`encode`.
+def decode(encoded: bytes, depth: int = 1) -> bytes:
+    """Decode *encoded* data produced by :func:`encode` with interleaving.
 
-    Each ``RS_N``‑byte block is decoded with either the external ``reedsolo``
-    decoder (if available) or the internal fallback.  When the fallback detects
-    a parity error it raises ``ValueError`` which is caught; the block is then
-    treated as if it were error‑free and the data portion is returned.  This
-    mirrors the historic behaviour of the library where the fallback simply
-    stripped parity.
+    The *depth* argument must be an integer between 1 and 5 (inclusive).  The
+    input is interpreted as a sequence of interleaved RS codewords, each group
+    consisting of ``RS_N * depth`` bytes (the result of ``encode`` with the same
+    *depth*).  For each group we split the column‑major interleaving back into
+    *depth* individual codewords using :func:`_rs_split_stride`, decode each
+    codeword with :func:`decode_block` (or fall back to the data portion on
+    ``ValueError``), and finally merge the decoded data blocks column‑major via
+    :func:`_rs_merge_column_major`.  This implements CCSDS 131.0‑B‑4 §4.3.5
+    (Figure 4‑2).  A *depth* of ``1`` preserves the original behaviour.
     """
-    if len(encoded) % RS_N != 0:
-        raise ValueError(f"Encoded length must be a multiple of {RS_N}")
+    if not (1 <= depth <= 5):
+        raise ValueError(f"Interleaving depth must be between 1 and 5, got {depth}")
+    if not encoded:
+        return b""
+    if len(encoded) % (RS_N * depth) != 0:
+        raise ValueError(f"Encoded length must be a multiple of {RS_N * depth}")
     out = bytearray()
-    for i in range(0, len(encoded), RS_N):
-        block = encoded[i : i + RS_N]
-        try:
-            out.extend(decode_block(block))
-        except ValueError:
-            # Fallback: return the data portion without error correction.
-            out.extend(block[:RS_K])
+    group_size = RS_N * depth
+    for i in range(0, len(encoded), group_size):
+        group = encoded[i : i + group_size]
+        # split interleaved bytes into individual encoded blocks
+        blocks = _rs_split_stride(group, depth)
+        decoded_blocks = []
+        for block in blocks:
+            try:
+                decoded_blocks.append(decode_block(block))
+            except ValueError:
+                # Fallback: use the data portion of the block.
+                decoded_blocks.append(block[:RS_K])
+        # merge decoded data blocks to reconstruct original (possibly padded) data
+        out.extend(_rs_merge_column_major(decoded_blocks))
     return bytes(out)
