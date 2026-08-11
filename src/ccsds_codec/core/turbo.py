@@ -35,9 +35,17 @@ Implements the Turbo code of CCSDS 131.0-B-4 §3 / §5 / §6 with the
 
 The interleaver permutation is golden-vector verified for K = 1784 against
 the CCSDS reference table from ``mdmoctezuma/CCSDSTurboCode``
-(``tests/test_turbo_golden.py``).  Full encoder/decoder output vectors for
-all block lengths and rates are not yet covered by external-reference tests
-(see docs/VERIFICATION_MATRIX.md, risk G-4).
+(``tests/test_turbo_golden.py``).  Encoder output vectors are golden-vector
+verified against the independent C implementation ``deepspace-turbo`` for all
+standard block lengths K = 1784, 3568, 7136, 8920, 16384 at rates 1/2, 1/3,
+1/4, 1/6 (rate 1/2 by applying the CCSDS 131.0-B-4 §3.4 puncturing pattern to
+the rate-1/3 reference vectors).  Decoder output vectors are verified against
+the ``deepspace-turbo`` reference decoder for K = 1784 at rates 1/3, 1/4, 1/6
+with bit-error-injected received streams
+(``tests/test_turbo_golden.py::test_turbo_decode_matches_reference_decoder``);
+rate 1/2 is excluded because the reference implementation uses a non-standard
+puncturing pattern (see docs/VERIFICATION_MATRIX.md, risk G-4 narrowed to
+G-4b/G-4c for the remaining K > 1784 decoder coverage).
 """
 
 from __future__ import annotations

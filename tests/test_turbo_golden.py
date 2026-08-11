@@ -25,6 +25,30 @@ derived by applying the CCSDS 131.0-B-4 §3.4 puncturing pattern
 ``(out 0a, out 1a, out 0a, out 1b)`` to the rate-1/3 reference vectors,
 because the puncturing pattern used by ``deepspace-turbo`` for rate 1/2
 differs from the CCSDS standard.
+
+Decoder reference vectors
+-------------------------
+``deepspace-turbo`` also implements the turbo decoder (``turbo_decode``,
+iterative Log-MAP/BCJR over the same RSC constituents and interleaver).
+The reference decoder output vectors below were produced with the
+``scripts/turbo_decoder_reference/decode_driver.c`` driver against that
+implementation (K = 1784, 10 iterations, noise variance 0.25, BPSK
+symbols with bit 0 -> -1, bit 1 -> +1):
+
+* ``turbo_k1784_r{rcode}_err{nerr}_rx.txt`` – the received hard bit stream
+  (0/1, ``NCOMP[rate] * (K + 4)`` bits) built from the encoder golden
+  payload ``[i % 2 for i in range(K)]`` (payload identical to the encoder
+  golden vectors) with a deterministic number of bit errors injected at
+  fixed positions (8 errors: ``numpy.random.default_rng(7)``; 30 errors:
+  ``numpy.random.default_rng(11)``);
+* ``turbo_k1784_r{rcode}_err{nerr}_dec.txt`` – the payload bits recovered by
+  the reference decoder for that received stream (1784 bits).
+
+The test below asserts that :func:`ccsds_codec.core.turbo.decode` recovers
+exactly those reference bits (with the default 5 iterations), i.e. both
+implementations agree bit-for-bit on error-corrected frames for every CCSDS
+rate whose puncturing is standard (1/3, 1/4, 1/6; rate 1/2 is excluded
+because the reference uses a non-standard puncturing pattern).
 """
 
 from pathlib import Path
@@ -32,7 +56,7 @@ from pathlib import Path
 import pytest
 
 from ccsds_codec.core.interleaver import ccsds_perm
-from ccsds_codec.core.turbo import STANDARD_K, encode
+from ccsds_codec.core.turbo import STANDARD_K, decode, encode
 
 DATA_DIR = Path(__file__).parent / "data"
 REF_K1784 = DATA_DIR / "ccsdsSize1784.txt"
@@ -73,3 +97,20 @@ def test_turbo_encode_matches_golden_vector(K: int, rate: str) -> None:
     ours = encode(bits, rate=rate)
     assert len(ours) == len(golden)
     assert "".join(str(b) for b in ours) == golden
+
+
+@pytest.mark.parametrize("rate", ["1/3", "1/4", "1/6"])
+@pytest.mark.parametrize("nerr", [8, 30])
+def test_turbo_decode_matches_reference_decoder(rate: str, nerr: int) -> None:
+    """Decoder output matches the deepspace-turbo reference decoder.
+
+    The received stream is the encoder golden payload ``[i % 2 ...]``
+    encoded at the given rate with ``nerr`` deterministic bit errors.  The
+    reference decoder recovers the payload exactly, and our decoder must
+    produce the same bits (bit-for-bit agreement on the corrected frame).
+    """
+    rcode = rate.replace("/", "")
+    rx = _load_bitstring(DATA_DIR / f"turbo_k1784_r{rcode}_err{nerr}_rx.txt")
+    ref = _load_bitstring(DATA_DIR / f"turbo_k1784_r{rcode}_err{nerr}_dec.txt")
+    ours = decode([int(c) for c in rx], rate=rate)
+    assert "".join(str(b) for b in ours) == ref
