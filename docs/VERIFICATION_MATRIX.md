@@ -2,8 +2,8 @@
 
 **対象規格**: CCSDS 131.0-B-4 (TM Synchronization and Channel Coding)
 **対象実装**: `ccsds-codec` (Python 3.11+)
-**検証日**: 2026-08-10（初版 81f5283 時点では pytest 189 passed → 修正適用後 228 passed に更新）
-**検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 228 passed
+**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 修正適用後 228 passed → 現時点 238 passed に更新）
+**検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 238 passed
 
 ---
 
@@ -85,7 +85,19 @@
 
 ---
 
-## 6. 性能・品質目標
+## 6. アーキテクチャ・データ型整合性
+
+以下の項目は CCSDS 131.0-B-4 の強制要件ではなく、本プロジェクトの内部設計基準（`AGENTS.md`）に対する整合性を評価したものです。
+
+| ID | 規格要求 | 要求内容 | 実装箇所 | 検証テスト | ステータス | 備考・リスク |
+|---|---|---|---|---|---|---|
+| ARCH-01 | AGENTS.md §1 | 抽象基底クラス `BaseEncoder` / `BaseDecoder` | 未実装 | なし | ✗ 非準拠 | `api.py:32-114` は独立ラッパークラスのみ。統一インターフェース・プラグイン化には不足 |
+| DTYPE-01 | AGENTS.md §1 / §4.1 | ビット列入出力を 1 次元 `np.ndarray` (`uint8`) で統一 | `api.py` 及各 `core/*.py` の入出力が `list[int]`。`np.uint8` は `core/turbo.py:434` の戻り値のみ | なし | ⚠️ 部分的 | LLR 計算では `np.ndarray` を使用するが、ビット列 API では Python list が基本。MSB-first 値は保証される |
+| DOC-06 | README / AGENTS.md | 生成多項式表記の整合性（README: `0x79/0x5B` = 標準オクタル表記、`core/convolutional.py`: `0x4F/0x6D` = lsb-current） | `README.md` / `core/convolutional.py:41-42` | `test_conv_known.py` | ✅ 準拠 | 値の違いではなく表現の違い。gr-satellites 由来のゴールデンベクトルで実装値が検証済み |
+
+---
+
+## 7. 性能・品質目標
 
 | ID | 要求 | 要求内容 | 実装箇所 | 検証テスト | ステータス | 備考・リスク |
 |---|---|---|---|---|---|---|
@@ -94,7 +106,7 @@
 
 ---
 
-## 7. CI・ドキュメント整合性
+## 8. CI・ドキュメント整合性
 
 | ID | 対象 | 問題内容 | ステータス | 備考 |
 |---|---|---|---|---|
@@ -116,13 +128,14 @@
 | Turbo | 8 | 1 | — | 1 |
 | Randomizer | 4 | — | — | — |
 | 共通規約 | 2 | — | — | — |
+| アーキテクチャ・データ型 | 1 | 1 | 1 | — |
 | 性能目標 | 1 | 1 | — | — |
 | CI・ドキュメント | 6 | — | — | — |
-| **合計** | **34** | **2** | **0** | **2** |
+| **合計** | **35** | **3** | **1** | **2** |
 
 ---
 
-## 主要リスク（G-1..G-7）と対応状況
+## 主要リスク（G-1..G-9）と対応状況
 
 | ID | リスク | 深刻度 | 対応状況 |
 |---|---|---|---|
@@ -132,14 +145,16 @@
 | G-4 | Turbo に外部参照ゴールデンベクトルテスト不在 | 中 | **一部解消** – インタリーバ K=1784 を外部参照（mdmoctezuma/CCSDSTurboCode の ccsdsSize1784.txt）と照合（1784 点完全一致）。他長・エンコード出力の照合は未実施 |
 | G-5 | BER/FER Monte-Carlo シミュレーション不在 | 中 | **解消** – `test_ber_fer_simulation.py` で AWGN 上 conv/turbo の BER/FER 単調性を検証 |
 | G-6 | CI が reedsolo なしで実行され訂正テストが失敗する可能性 | 中 | **解消** – `pyproject.toml` dev extras に reedsolo 追加 |
-| G-7 | ドキュメント 5 件が現行実装と矛盾 | 低 | **解消** – 5 件すべて更新済み（+ 私が追加検証した 2 箇所の矛盾も修正） |
+| G-7 | ドキュメント 5 件が現行実装と矛盾 | 低 | **解消** – 5 件すべて更新済み（+ 追加検証した 2 箇所の矛盾も修正） |
+| G-8 | `BaseEncoder`/`BaseDecoder` 抽象基底クラス未実装 | 中 | **未解消** – AGENTS.md §1 の要件。API 統一・プラグイン化に影響。優先度中として追加対応を検討 |
+| G-9 | ビット列 API が `np.uint8` ndarray で統一されていない | 低〜中 | **未解消** – AGENTS.md §1/§4.1 のデータ型基準。機能的には問題ないが、型契約・ベクトル化の一貫性が損なわれる |
 
 ---
 
 ## 付記
 
 - 本マトリックスの `file:line` 引用は検証スクリプトにより実在確認済み。テスト名はテストディレクトリの実スキャンで確認済み。
-- 実行証跡: `pytest` 189 passed → **228 passed**（+39: Turbo 標準長 35・BER/FER 2・Turbo golden vector 2。2026-08-10, Python 3.14.4）。`ruff check src/ccsds_codec tests` も全通過。
+- 実行証跡: `pytest` 189 passed → 228 passed → **238 passed**（2026-08-10, Python 3.14.4）。`ruff check src/ccsds_codec tests` も全通過。
 - RS のゴールデンベクトル (`test_rs.py::test_encode_known_vector`) は reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) との parity 一致で検証。
 - CONV のゴールデンベクトル (`test_conv_known.py`) は gr-satellites の GNU Radio 実装とのビット一致で検証。
 - Turbo インタリーバのゴールデンベクトル (`test_turbo_golden.py`) は mdmoctezuma/CCSDSTurboCode の `ccsdsSize1784.txt`（CCSDS 標準インタリーバ表）との K=1784 完全一致で検証（`tests/data/ccsdsSize1784.txt` としてコミット、sha256 c7094e37...）。
