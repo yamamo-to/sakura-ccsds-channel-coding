@@ -16,6 +16,7 @@ The low-level functions remain available from the codec modules
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
 
 from .config import ConvConfig, RSConfig, TurboConfig
 from .core.convolutional import encode as _conv_encode
@@ -37,32 +38,37 @@ __all__ = [
     "Randomizer",
 ]
 
+T_in = TypeVar("T_in")
+T_out = TypeVar("T_out")
 
-class BaseEncoder(ABC):
+
+class BaseEncoder(ABC, Generic[T_in, T_out]):
     """Abstract base class for CCSDS encoders.
 
     All encoder implementations in this package inherit from this class and
-    provide a concrete :meth:`encode` method.
+    provide a concrete :meth:`encode` method.  The class is generic over the
+    codec's input type ``T_in`` and output type ``T_out``.
     """
 
     @abstractmethod
-    def encode(self, data: bytes | list[int]) -> bytes | list[int]:
+    def encode(self, data: T_in) -> T_out:
         """Encode *data* and return the encoded representation."""
 
 
-class BaseDecoder(ABC):
+class BaseDecoder(ABC, Generic[T_in, T_out]):
     """Abstract base class for CCSDS decoders.
 
     All decoder implementations in this package inherit from this class and
-    provide a concrete :meth:`decode` method.
+    provide a concrete :meth:`decode` method.  The class is generic over the
+    codec's input type ``T_in`` and output type ``T_out``.
     """
 
     @abstractmethod
-    def decode(self, encoded: bytes | list[int]) -> bytes | list[int]:
+    def decode(self, encoded: T_in) -> T_out:
         """Decode *encoded* and return the original representation."""
 
 
-class RSCodec(BaseEncoder, BaseDecoder):
+class RSCodec(BaseEncoder[bytes, bytes], BaseDecoder[bytes, bytes]):
     """Reed‑Solomon (255,223) codec wrapper.
 
     Applies block interleaving of depth 1…5 as specified by CCSDS 131.0‑B‑4
@@ -84,7 +90,7 @@ class RSCodec(BaseEncoder, BaseDecoder):
         return _rs_decode(encoded, depth=self.config.depth)
 
 
-class ConvCodec(BaseEncoder, BaseDecoder):
+class ConvCodec(BaseEncoder[list[int], list[int]], BaseDecoder[list[int], list[int]]):
     """Convolutional encoder/decoder (rates 1/2, 2/3, 3/4, 5/6, 7/8).
 
     Args:
@@ -104,7 +110,7 @@ class ConvCodec(BaseEncoder, BaseDecoder):
         return _viterbi_decode(soft_bits, rate=self.config.rate)
 
 
-class TurboCodec(BaseEncoder, BaseDecoder):
+class TurboCodec(BaseEncoder[list[int], list[int]], BaseDecoder[list[int], list[int]]):
     """Turbo encoder/decoder (rates 1/2, 1/3, 1/4, 1/6).
 
     Args:
