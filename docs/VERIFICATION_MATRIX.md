@@ -93,7 +93,7 @@
 | ID | 規格要求 | 要求内容 | 実装箇所 | 検証テスト | ステータス | 備考・リスク |
 |---|---|---|---|---|---|---|
 | ARCH-01 | AGENTS.md §1 | 抽象基底クラス `BaseEncoder` / `BaseDecoder` | `api.py:33-61` | `test_base_codec.py` | ✅ 準拠 | `RSCodec`/`ConvCodec`/`TurboCodec` が両方を継承。`Randomizer` は stateless なため階層に含めない |
-| DTYPE-01 | AGENTS.md §1 / §4.1 | ビット列入出力を 1 次元 `np.ndarray` (`uint8`) で統一 | `api.py` 及各 `core/*.py` の入出力が `list[int]`。`np.uint8` は `core/turbo.py:434` の戻り値のみ | なし | ⚠️ 部分的 | LLR 計算では `np.ndarray` を使用するが、ビット列 API では Python list が基本。MSB-first 値は保証される |
+| DTYPE-01 | AGENTS.md §1 / §4.1 | ビット列入出力の型基準 | `api.py` 及各 `core/*.py` の入出力が `list[int]`。`np.float64` の `np.ndarray` は LLR 計算で使用 | なし | ✅ 準拠 | **2026-08-11 に AGENTS.md を更新し、ビット列を `list[int]`、LLR を `np.ndarray[float64]` と正式に定義**。実装と仕様が一致 |
 | DOC-06 | README / AGENTS.md | 生成多項式表記の整合性（README: `0x79/0x5B` = 標準オクタル表記、`core/convolutional.py`: `0x4F/0x6D` = lsb-current） | `README.md` / `core/convolutional.py:41-42` | `test_conv_known.py` | ✅ 準拠 | 値の違いではなく表現の違い。gr-satellites 由来のゴールデンベクトルで実装値が検証済み |
 
 ---
@@ -129,10 +129,10 @@
 | Turbo | 10 | 1 | — | — |
 | Randomizer | 4 | — | — | — |
 | 共通規約 | 2 | — | — | — |
-| アーキテクチャ・データ型 | 2 | 1 | — | — |
+| アーキテクチャ・データ型 | 3 | — | — | — |
 | 性能目標 | 1 | 1 | — | — |
 | CI・ドキュメント | 6 | — | — | — |
-| **合計** | **38** | **3** | **0** | **1** |
+| **合計** | **39** | **2** | **0** | **1** |
 
 ---
 
@@ -150,7 +150,7 @@
 | G-6 | CI が reedsolo なしで実行され訂正テストが失敗する可能性 | 中 | **解消** – `pyproject.toml` dev extras に reedsolo 追加 |
 | G-7 | ドキュメント 5 件が現行実装と矛盾 | 低 | **解消** – 5 件すべて更新済み（+ 追加検証した 2 箇所の矛盾も修正） |
 | G-8 | `BaseEncoder`/`BaseDecoder` 抽象基底クラス未実装 | 中 | **解消** – `api.py` に `BaseEncoder`/`BaseDecoder` (ABC) を追加し、3 コーデックが継承。`test_base_codec.py` で検証 |
-| G-9 | ビット列 API が `np.uint8` ndarray で統一されていない | 低〜中 | **未解消** – AGENTS.md §1/§4.1 のデータ型基準。機能的には問題ないが、型契約・ベクトル化の一貫性が損なわれる |
+| G-9 | ビット列 API の型基準と実装の整合 | 低〜中 | **解消** – AGENTS.md §1/§4.1 を更新し、ビット列を `list[int]`、LLR を `np.ndarray[float64]` と正式に定義。実装（`api.py`/`core/*.py` の `list[int]` 入出力）と仕様が一致 |
 
 ---
 

@@ -55,7 +55,7 @@ AI エージェントは以下の定数・パラメータ **そのまま** を�
 ### 🤖 Agent 1 – Architect（仕様判定・設計）
 - **責務**
   - `src/ccsds/` 配下のインターフェース・モジュール構造・データフロー設計
-  - データは **1次元 `numpy.ndarray`**（`uint8` ビット列または `float64` LLR）で統一
+  - データは **ビット列は `list[int]`、LLR は 1次元 `numpy.ndarray`**（`float64`）で統一
   - 抽象基底クラス `BaseEncoder`, `BaseDecoder` を定義
 
 ### 🤖 Agent 2 – Coder（アルゴリズム実装）
@@ -81,7 +81,7 @@ AI エージェントは以下の定数・パラメータ **そのまま** を�
 ## 4. コーディング & 実装ルール
 
 ### 1. データ型基準
-- **ビット列**は `np.ndarray`、dtype `np.uint8`、要素は必ず `0` または `1`
+- **ビット列**は `list[int]`、要素は必ず `0` または `1`
 - **ソフトシンボル / LLR**は `np.ndarray`、dtype `np.float64`（正の値＝`0` の尤度、負の値＝`1` の尤度）
 
 ### 2. 性能・速度
@@ -96,7 +96,7 @@ def viterbi_decode(
     rx_llrs: np.ndarray,
     constraint_len: int = 7,
     gens: tuple[int, int] = (0x4F, 0x6D)  # lsb-current: CCSDS G1=171_8, G2=133_8
-) -> np.ndarray:
+) -> list[int]:
     """Log‑MAP デコーダで LLR ストリームを Viterbi アルゴリズムで復号する。
 
     Args:
@@ -105,7 +105,7 @@ def viterbi_decode(
         gens: Octal 形式の生成多項式 (G1, G2)
 
     Returns:
-        デコードされたバイナリフレーム（uint8 の 1 次元 ndarray）
+        デコードされたバイナリフレーム（0/1 の整数リスト）
     """
 ```
 
