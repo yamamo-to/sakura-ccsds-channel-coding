@@ -32,19 +32,25 @@ Decoder reference vectors
 iterative Log-MAP/BCJR over the same RSC constituents and interleaver).
 The reference decoder output vectors below were produced with the
 ``scripts/turbo_decoder_reference/decode_driver.c`` driver against that
-implementation (K = 1784, 10 iterations, noise variance 0.25, BPSK
-symbols with bit 0 -> -1, bit 1 -> +1):
+implementation (K = 1784, 3568, 7136 and 8920, 10 iterations, noise
+variance 0.25, BPSK symbols with bit 0 -> -1, bit 1 -> +1):
 
-* ``turbo_k1784_r{rcode}_err{nerr}_rx.txt`` – the received hard bit stream
+* ``turbo_k{K}_r{rcode}_err{nerr}_rx.txt`` – the received hard bit stream
   (0/1, ``NCOMP[rate] * (K + 4)`` bits) built from the encoder golden
   payload ``[i % 2 for i in range(K)]`` (payload identical to the encoder
   golden vectors) with a deterministic number of bit errors injected at
   fixed positions (8 errors: ``numpy.random.default_rng(7)``; 30 errors:
   ``numpy.random.default_rng(11)``);
-* ``turbo_k1784_r{rcode}_err{nerr}_dec.txt`` – the payload bits recovered by
-  the reference decoder for that received stream (1784 bits).
+* ``turbo_k{K}_r{rcode}_err{nerr}_dec.txt`` – the payload bits recovered by
+  the reference decoder for that received stream (``K`` bits).
 
-The test below asserts that :func:`ccsds_codec.core.turbo.decode` recovers
+K is the set of CCSDS 131.0-B-4 Table 6-1 standard information block
+lengths 1784/3568/7136/8920.  K = 16384 is deliberately *not* covered:
+it is not a standard Turbo information block length in CCSDS 131.0-B-4
+(it belongs to the LDPC family, Table 7-1), the reference implementation
+rejects it (K % 1784 != 0), and no independent decoder for it is known.
+
+The tests below assert that :func:`ccsds_codec.core.turbo.decode` recovers
 exactly those reference bits (with the default 5 iterations), i.e. both
 implementations agree bit-for-bit on error-corrected frames for every CCSDS
 rate whose puncturing is standard (1/3, 1/4, 1/6; rate 1/2 is excluded
@@ -99,9 +105,13 @@ def test_turbo_encode_matches_golden_vector(K: int, rate: str) -> None:
     assert "".join(str(b) for b in ours) == golden
 
 
+DECODER_K = (1784, 3568, 7136, 8920)
+
+
+@pytest.mark.parametrize("K", DECODER_K)
 @pytest.mark.parametrize("rate", ["1/3", "1/4", "1/6"])
 @pytest.mark.parametrize("nerr", [8, 30])
-def test_turbo_decode_matches_reference_decoder(rate: str, nerr: int) -> None:
+def test_turbo_decode_matches_reference_decoder(K: int, rate: str, nerr: int) -> None:
     """Decoder output matches the deepspace-turbo reference decoder.
 
     The received stream is the encoder golden payload ``[i % 2 ...]``
@@ -110,7 +120,7 @@ def test_turbo_decode_matches_reference_decoder(rate: str, nerr: int) -> None:
     produce the same bits (bit-for-bit agreement on the corrected frame).
     """
     rcode = rate.replace("/", "")
-    rx = _load_bitstring(DATA_DIR / f"turbo_k1784_r{rcode}_err{nerr}_rx.txt")
-    ref = _load_bitstring(DATA_DIR / f"turbo_k1784_r{rcode}_err{nerr}_dec.txt")
+    rx = _load_bitstring(DATA_DIR / f"turbo_k{K}_r{rcode}_err{nerr}_rx.txt")
+    ref = _load_bitstring(DATA_DIR / f"turbo_k{K}_r{rcode}_err{nerr}_dec.txt")
     ours = decode([int(c) for c in rx], rate=rate)
     assert "".join(str(b) for b in ours) == ref

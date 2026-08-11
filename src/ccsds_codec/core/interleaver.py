@@ -8,7 +8,10 @@ recommendation): with ``k1 = 8`` and ``k2 = K / 8`` the output position ``j``
 The permutation for K = 1784 is golden-vector verified against the CCSDS
 reference interleaver table ``ccsdsSize1784.txt`` from the
 ``mdmoctezuma/CCSDSTurboCode`` repository (see
-``tests/test_turbo_golden.py``).
+``tests/test_turbo_golden.py``).  With ``k1 = 8`` fixed (CCSDS 131.0-B-4
+Table 6-3) the construction covers every standard block length
+1784/3568/7136/8920; K = 16384 is an extension (not a standard Turbo
+block length, LDPC §7.4 only).
 """
 
 from __future__ import annotations
@@ -25,8 +28,9 @@ def ccsds_perm(K: int) -> list[int]:
     """Return the CCSDS §6.3g permutation indices for block length ``K``.
 
     The result ``perm`` satisfies ``interleaved[j] = bits[perm[j]]`` for
-    ``j = 0 .. K-1``.  ``K`` must be divisible by 8 (``k2 = K/8``); all CCSDS
-    block lengths (1784, 3568, 7136, 8920, 16384) satisfy this.
+    ``j = 0 .. K-1``.  ``K`` must be divisible by 8 (``k2 = K/8``); the CCSDS
+    standard block lengths (1784, 3568, 7136, 8920) and the extension
+    16384 all satisfy this.
 
     Args:
         K: Block length in bits.

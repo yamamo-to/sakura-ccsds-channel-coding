@@ -37,15 +37,23 @@ The interleaver permutation is golden-vector verified for K = 1784 against
 the CCSDS reference table from ``mdmoctezuma/CCSDSTurboCode``
 (``tests/test_turbo_golden.py``).  Encoder output vectors are golden-vector
 verified against the independent C implementation ``deepspace-turbo`` for all
-standard block lengths K = 1784, 3568, 7136, 8920, 16384 at rates 1/2, 1/3,
+CCSDS standard block lengths K = 1784, 3568, 7136, 8920 at rates 1/2, 1/3,
 1/4, 1/6 (rate 1/2 by applying the CCSDS 131.0-B-4 §3.4 puncturing pattern to
 the rate-1/3 reference vectors).  Decoder output vectors are verified against
-the ``deepspace-turbo`` reference decoder for K = 1784 at rates 1/3, 1/4, 1/6
-with bit-error-injected received streams
+the ``deepspace-turbo`` reference decoder for all standard block lengths
+K = 1784, 3568, 7136, 8920 at rates 1/3, 1/4, 1/6 with bit-error-injected
+received streams
 (``tests/test_turbo_golden.py::test_turbo_decode_matches_reference_decoder``);
 rate 1/2 is excluded because the reference implementation uses a non-standard
-puncturing pattern (see docs/VERIFICATION_MATRIX.md, risk G-4 narrowed to
-G-4b/G-4c for the remaining K > 1784 decoder coverage).
+puncturing pattern (see docs/VERIFICATION_MATRIX.md, risk G-4c).
+
+K = 16384 is supported as an extension but is **not** a CCSDS 131.0-B-4
+standard Turbo information block length: Table 6-1 lists only
+1784/3568/7136/8920 (16384 belongs to the LDPC family, Table 7-1), the
+``deepspace-turbo`` reference rejects it (K % 1784 != 0), and no independent
+decoder for it is known.  Its encoder golden vectors are therefore
+self-generated (round-trip and interleaver-bijectivity checked by
+``test_turbo_standard_lengths.py`` / ``test_turbo_interleaver_extended.py``).
 """
 
 from __future__ import annotations
@@ -107,7 +115,8 @@ _LOWER_GENS = {
     "1/6": [GEN_SYS, GEN, GEN3],
 }
 
-#: CCSDS block lengths (CCSDS 131.0-B-4 §3.1.1).
+#: CCSDS 131.0-B-4 §3.1.1 block lengths (Table 6-1: 1784/3568/7136/8920) plus
+#: 16384 as an extension (not a standard Turbo block length; LDPC §7.4 only).
 STANDARD_K = (1784, 3568, 7136, 8920, 16384)
 
 

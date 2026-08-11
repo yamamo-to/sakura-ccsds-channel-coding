@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate the Turbo decoder reference golden vectors.
 
-The vectors ``tests/data/turbo_k1784_r{rcode}_err{nerr}_{rx,dec}.txt`` are
+The vectors ``tests/data/turbo_k{K}_r{rcode}_err{nerr}_{rx,dec}.txt`` are
 produced by the independent C reference implementation
 ``geeanlooca/deepspace-turbo`` (CCSDS 131.0-B-2 Turbo codes), driven through
 the ``scripts/turbo_decoder_reference/decode_driver.c`` wrapper.  This script
@@ -24,6 +24,11 @@ Usage:
 ``<deepspace-turbo-dir>`` must be a checkout of
 https://github.com/geeanlooca/deepspace-turbo containing ``libturbocodes.c``,
 ``libconvcodes.c`` and ``utilities.c``.  Requires a C compiler (``gcc``).
+
+Block lengths are the CCSDS 131.0-B-4 Table 6-1 standard lengths
+1784/3568/7136/8920.  K = 16384 is deliberately excluded: it is *not* a
+standard Turbo information block length (it belongs to the LDPC family,
+Table 7-1) and the reference implementation rejects it (K % 1784 != 0).
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "tests" / "data"
 DRIVER_SRC = ROOT / "scripts" / "turbo_decoder_reference" / "decode_driver.c"
 
-K = 1784
+KS = (1784, 3568, 7136, 8920)
 RATES = ["1/3", "1/4", "1/6"]
 ERROR_CONFIGS = [(8, 7), (30, 11)]
 
@@ -60,10 +65,10 @@ def build_driver(ref_dir: Path, workdir: Path) -> Path:
     return out
 
 
-def reference_decode(driver: Path, rate: str, received: np.ndarray, workdir: Path) -> str:
+def reference_decode(driver: Path, K: int, rate: str, received: np.ndarray, workdir: Path) -> str:
     """Run the reference decoder and return the recovered payload bit string."""
-    sym_path = workdir / f"sym_{rate.replace('/', '_')}.txt"
-    out_path = workdir / f"dec_{rate.replace('/', '_')}.txt"
+    sym_path = workdir / f"sym_K{K}_{rate.replace('/', '_')}.txt"
+    out_path = workdir / f"dec_K{K}_{rate.replace('/', '_')}.txt"
     sym = 2.0 * received.astype(np.float64) - 1.0
     sym_path.write_text(" ".join(f"{v:.1f}" for v in sym) + "\n")
     subprocess.run(
@@ -91,23 +96,24 @@ def main() -> int:
     workdir.mkdir(parents=True, exist_ok=True)
     driver = build_driver(ref_dir, workdir)
 
-    payload = np.array([i % 2 for i in range(K)], dtype=np.uint8)
-    for rate in RATES:
-        codeword = np.array(encode(payload.tolist(), rate=rate), dtype=np.uint8)
-        for nerr, seed in ERROR_CONFIGS:
-            rng = np.random.default_rng(seed)
-            pos = sorted(rng.choice(len(codeword), size=nerr, replace=False).tolist())
-            received = codeword.copy()
-            for p in pos:
-                received[p] ^= 1
-            ref = reference_decode(driver, rate, received, workdir)
+    for K in KS:
+        payload = np.array([i % 2 for i in range(K)], dtype=np.uint8)
+        for rate in RATES:
+            codeword = np.array(encode(payload.tolist(), rate=rate), dtype=np.uint8)
+            for nerr, seed in ERROR_CONFIGS:
+                rng = np.random.default_rng(seed)
+                pos = sorted(rng.choice(len(codeword), size=nerr, replace=False).tolist())
+                received = codeword.copy()
+                for p in pos:
+                    received[p] ^= 1
+                ref = reference_decode(driver, K, rate, received, workdir)
 
-            rcode = rate.replace("/", "")
-            (DATA_DIR / f"turbo_k{K}_r{rcode}_err{nerr}_rx.txt").write_text(
-                "".join(map(str, received)) + "\n"
-            )
-            (DATA_DIR / f"turbo_k{K}_r{rcode}_err{nerr}_dec.txt").write_text(ref + "\n")
-            print(f"rate {rate} nerr={nerr}: wrote rx/dec ({len(ref)} payload bits)")
+                rcode = rate.replace("/", "")
+                (DATA_DIR / f"turbo_k{K}_r{rcode}_err{nerr}_rx.txt").write_text(
+                    "".join(map(str, received)) + "\n"
+                )
+                (DATA_DIR / f"turbo_k{K}_r{rcode}_err{nerr}_dec.txt").write_text(ref + "\n")
+                print(f"K={K} rate {rate} nerr={nerr}: wrote rx/dec ({len(ref)} payload bits)")
     return 0
 
 
