@@ -2,8 +2,8 @@
 
 **対象規格**: CCSDS 131.0-B-4 (TM Synchronization and Channel Coding)
 **対象実装**: `ccsds-codec` (Python 3.11+)
-**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 修正適用後 228 passed → 238 passed → 267 passed → 現時点 282 passed に更新）
-**検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 282 passed
+**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 現時点 287 passed に更新）
+**検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 287 passed
 
 ---
 
@@ -60,7 +60,7 @@
 | TURBO-06 | §3.4 (Annex) | 反復 Log-MAP / Max-Log-MAP 復号 | `core/turbo.py:215` (`_build_trellis`), `:256` (`_bcjr_kernel`), `_turbo_decode_core` | `test_turbo.py::test_unpunctured_roundtrip`, `test_turbo.py::test_punctured_roundtrip`, `test_turbo_extended.py::test_decode_consistency_across_iterations` | ✅ 準拠 | |
 | TURBO-07 | 数値安定性 | 対数領域でアンダーフロー防止 | `core/turbo.py:256` (`_bcjr_kernel`) | `test_turbo_rate16.py::test_bcjr_kernel_channel_matrix_shapes`, `test_turbo_rate16.py::test_bcjr_kernel_clean_channel_decodes_zeros` | ✅ 準拠 | 有限 LLR・チャネル行列形状を検証 |
 | TURBO-08 | §3.1.1 | ブロック長からのレート自動判別 | `core/turbo.py` (`_detect_rate_k`) | `test_turbo_properties.py::test_rate_autodetect_is_unique_and_correct`, `test_turbo_properties.py::test_rate_autodetect_rejects_unknown_length` | ✅ 準拠 | |
-| TURBO-09 | Annex A | 付録の符号語（エンコード出力）基準テストベクトル | `core/turbo.py` (`encode`) | `test_turbo_golden.py::test_turbo_encode_matches_golden_vector` | ⚠️ 部分的 | Annex A 自体の公式符号語は非公開だが、`geeanlooca/deepspace-turbo` から生成した独立参照ベクトルと rates 1/3/1/4/1/6・全 5 ブロック長で一致を確認。rate 1/2 の外部エンコーダ出力照合は未実施 |
+| TURBO-09 | Annex A / §3.4 | 付録の符号語（エンコード出力）基準テストベクトル | `core/turbo.py` (`encode`) | `test_turbo_golden.py::test_turbo_encode_matches_golden_vector` | ✅ 準拠 | rates 1/3/1/4/1/6 は `geeanlooca/deepspace-turbo` 参照実装と直接照合。rate 1/2 は同じ参照の rate-1/3 出力に CCSDS §3.4 の puncturing パターンを適用した derived vector で照合（全 5 ブロック長） |
 | TURBO-10 | §6.3g / Annex H | QPP インタリーバ（全 5 標準ブロック長） | `core/interleaver.py` (`ccsds_perm`) | `test_turbo_interleaver_extended.py` | ✅ 準拠 | 公式 CCSDS §6.3g 数式の独立再実装と照合済み（1784/3568/7136/8920/16384）。K=1784 はさらに外部参照ファイル `ccsdsSize1784.txt` と一致 |
 | TURBO-11 | §3.4 | 最大反復回数（規格例: 10 回） | デフォルト 5 回、上限未設定 | `test_turbo_extended.py::test_decode_consistency_across_iterations` | ⚠️ 部分的 | 反復回数は設定可能だが上限強制なし |
 
@@ -126,13 +126,13 @@
 |---|---|---|---|---|
 | Reed-Solomon | 6 | — | — | 1 |
 | Convolutional | 7 | — | — | — |
-| Turbo | 9 | 2 | — | — |
+| Turbo | 10 | 1 | — | — |
 | Randomizer | 4 | — | — | — |
 | 共通規約 | 2 | — | — | — |
 | アーキテクチャ・データ型 | 2 | 1 | — | — |
 | 性能目標 | 1 | 1 | — | — |
 | CI・ドキュメント | 6 | — | — | — |
-| **合計** | **37** | **4** | **0** | **1** |
+| **合計** | **38** | **3** | **0** | **1** |
 
 ---
 
@@ -144,7 +144,7 @@
 | G-2 | `decode()` が不可訂正ブロックを検出してもデータ部を黙って返す（サイレント破損） | 高 | **解消** – `ValueError`（グループ/ブロック番号付き）を送出。CLI は stderr + exit(1)。テスト 3 件も新挙動に更新済み |
 | G-3 | Turbo 標準ブロック長 (1784..16384) での実符復号テスト不在 | 高 | **解消** – `test_turbo_standard_lengths.py` で全 5 長 × rate 1/3・1/6 の roundtrip + 全 5 長 × 4 レートの自動判別を検証 |
 | G-4 | Turbo QPP インタリーバの外部照合 | 中 | **解消** – 公式 CCSDS §6.3g 数式の独立再実装と全 5 標準長を照合。K=1784 はさらに外部参照ファイルと一致 |
-| G-4b | Turbo Annex A 符号語ベクトル不在 | 中 | **一部解消** – `geeanlooca/deepspace-turbo` 参照実装と rates 1/3/1/4/1/6・全 5 標準長のエンコーダ出力を照合。rate 1/2 の外部照合は未実施（標準書 §3.4 のパンクチャ記述で構造検証） |
+| G-4b | Turbo Annex A 符号語ベクトル不在 | 中 | **解消** – `geeanlooca/deepspace-turbo` 参照実装の rate-1/3 出力に CCSDS §3.4 puncturing を適用し、rate 1/2 を含む全 rates・全 5 標準長のエンコーダ出力を照合 |
 | G-5 | BER/FER Monte-Carlo シミュレーション不在 | 中 | **解消** – `test_ber_fer_simulation.py` で AWGN 上 conv/turbo の BER/FER 単調性を検証 |
 | G-6 | CI が reedsolo なしで実行され訂正テストが失敗する可能性 | 中 | **解消** – `pyproject.toml` dev extras に reedsolo 追加 |
 | G-7 | ドキュメント 5 件が現行実装と矛盾 | 低 | **解消** – 5 件すべて更新済み（+ 追加検証した 2 箇所の矛盾も修正） |
@@ -156,7 +156,7 @@
 ## 付記
 
 - 本マトリックスの `file:line` 引用は検証スクリプトにより実在確認済み。テスト名はテストディレクトリの実スキャンで確認済み。
-- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → **282 passed**（2026-08-10, Python 3.14.4）。`ruff check src/ccsds_codec tests` も全通過。
+- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → **287 passed**（2026-08-10, Python 3.14.4）。`ruff check src/ccsds_codec tests` も全通過。
 - RS のゴールデンベクトル (`test_rs.py::test_encode_known_vector`) は reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) との parity 一致で検証。
 - CONV のゴールデンベクトル (`test_conv_known.py`) は gr-satellites の GNU Radio 実装とのビット一致で検証。
 - Turbo インタリーバのゴールデンベクトル (`test_turbo_golden.py`) は mdmoctezuma/CCSDSTurboCode の `ccsdsSize1784.txt`（CCSDS 標準インタリーバ表）との K=1784 完全一致で検証（`tests/data/ccsdsSize1784.txt` としてコミット、sha256 c7094e37...）。
