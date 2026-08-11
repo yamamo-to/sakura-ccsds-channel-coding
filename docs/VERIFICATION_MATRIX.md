@@ -2,8 +2,8 @@
 
 **対象規格**: CCSDS 131.0-B-4 (TM Synchronization and Channel Coding)
 **対象実装**: `ccsds-codec` (Python 3.11+)
-**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 修正適用後 228 passed → 現時点 238 passed に更新）
-**検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 238 passed
+**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 修正適用後 228 passed → 238 passed → 現時点 267 passed に更新）
+**検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 267 passed
 
 ---
 
@@ -60,8 +60,9 @@
 | TURBO-06 | §3.4 (Annex) | 反復 Log-MAP / Max-Log-MAP 復号 | `core/turbo.py:215` (`_build_trellis`), `:256` (`_bcjr_kernel`), `_turbo_decode_core` | `test_turbo.py::test_unpunctured_roundtrip`, `test_turbo.py::test_punctured_roundtrip`, `test_turbo_extended.py::test_decode_consistency_across_iterations` | ✅ 準拠 | |
 | TURBO-07 | 数値安定性 | 対数領域でアンダーフロー防止 | `core/turbo.py:256` (`_bcjr_kernel`) | `test_turbo_rate16.py::test_bcjr_kernel_channel_matrix_shapes`, `test_turbo_rate16.py::test_bcjr_kernel_clean_channel_decodes_zeros` | ✅ 準拠 | 有限 LLR・チャネル行列形状を検証 |
 | TURBO-08 | §3.1.1 | ブロック長からのレート自動判別 | `core/turbo.py` (`_detect_rate_k`) | `test_turbo_properties.py::test_rate_autodetect_is_unique_and_correct`, `test_turbo_properties.py::test_rate_autodetect_rejects_unknown_length` | ✅ 準拠 | |
-| TURBO-09 | Annex A | 付録の基準テストベクトル | なし | `test_turbo_golden.py::test_ccsds_perm_1784_matches_reference` (K=1784 インタリーバのみ) | ❓ 未検証 | 付録の符号語（エンコード出力）ベクトルとの照合テストは未実施。インタリーバ K=1784 の外部照合は TURBO-05 で実施済み（リスク G-4 一部残） |
-| TURBO-10 | §3.4 | 最大反復回数（規格例: 10 回） | デフォルト 5 回、上限未設定 | `test_turbo_extended.py::test_decode_consistency_across_iterations` | ⚠️ 部分的 | 反復回数は設定可能だが上限強制なし |
+| TURBO-09 | Annex A | 付録の符号語（エンコード出力）基準テストベクトル | なし | なし | ❓ 未検証 | 公開されている Annex A 符号語ベクトルは取得不可。エンコード出力の外部照合は未実施 |
+| TURBO-10 | §6.3g / Annex H | QPP インタリーバ（全 5 標準ブロック長） | `core/interleaver.py` (`ccsds_perm`) | `test_turbo_interleaver_extended.py` | ✅ 準拠 | 公式 CCSDS §6.3g 数式の独立再実装と照合済み（1784/3568/7136/8920/16384）。K=1784 はさらに外部参照ファイル `ccsdsSize1784.txt` と一致 |
+| TURBO-11 | §3.4 | 最大反復回数（規格例: 10 回） | デフォルト 5 回、上限未設定 | `test_turbo_extended.py::test_decode_consistency_across_iterations` | ⚠️ 部分的 | 反復回数は設定可能だが上限強制なし |
 
 ---
 
@@ -91,7 +92,7 @@
 
 | ID | 規格要求 | 要求内容 | 実装箇所 | 検証テスト | ステータス | 備考・リスク |
 |---|---|---|---|---|---|---|
-| ARCH-01 | AGENTS.md §1 | 抽象基底クラス `BaseEncoder` / `BaseDecoder` | 未実装 | なし | ✗ 非準拠 | `api.py:32-114` は独立ラッパークラスのみ。統一インターフェース・プラグイン化には不足 |
+| ARCH-01 | AGENTS.md §1 | 抽象基底クラス `BaseEncoder` / `BaseDecoder` | `api.py:33-61` | `test_base_codec.py` | ✅ 準拠 | `RSCodec`/`ConvCodec`/`TurboCodec` が両方を継承。`Randomizer` は stateless なため階層に含めない |
 | DTYPE-01 | AGENTS.md §1 / §4.1 | ビット列入出力を 1 次元 `np.ndarray` (`uint8`) で統一 | `api.py` 及各 `core/*.py` の入出力が `list[int]`。`np.uint8` は `core/turbo.py:434` の戻り値のみ | なし | ⚠️ 部分的 | LLR 計算では `np.ndarray` を使用するが、ビット列 API では Python list が基本。MSB-first 値は保証される |
 | DOC-06 | README / AGENTS.md | 生成多項式表記の整合性（README: `0x79/0x5B` = 標準オクタル表記、`core/convolutional.py`: `0x4F/0x6D` = lsb-current） | `README.md` / `core/convolutional.py:41-42` | `test_conv_known.py` | ✅ 準拠 | 値の違いではなく表現の違い。gr-satellites 由来のゴールデンベクトルで実装値が検証済み |
 
@@ -125,13 +126,13 @@
 |---|---|---|---|---|
 | Reed-Solomon | 6 | — | — | 1 |
 | Convolutional | 7 | — | — | — |
-| Turbo | 8 | 1 | — | 1 |
+| Turbo | 9 | 1 | — | 1 |
 | Randomizer | 4 | — | — | — |
 | 共通規約 | 2 | — | — | — |
-| アーキテクチャ・データ型 | 1 | 1 | 1 | — |
+| アーキテクチャ・データ型 | 2 | 1 | — | — |
 | 性能目標 | 1 | 1 | — | — |
 | CI・ドキュメント | 6 | — | — | — |
-| **合計** | **35** | **3** | **1** | **2** |
+| **合計** | **37** | **3** | **0** | **2** |
 
 ---
 
@@ -142,11 +143,12 @@
 | G-1 | reedsolo 非搭載環境で RS 誤り訂正が無効（パリティ照合のみ） | 高 | **軽減済み** – reedsolo を dev 依存に追加。ランタイムで非搭載の場合のみパリティ照合フォールバックに縮退（純実装訂正デコーダは今後の課題） |
 | G-2 | `decode()` が不可訂正ブロックを検出してもデータ部を黙って返す（サイレント破損） | 高 | **解消** – `ValueError`（グループ/ブロック番号付き）を送出。CLI は stderr + exit(1)。テスト 3 件も新挙動に更新済み |
 | G-3 | Turbo 標準ブロック長 (1784..16384) での実符復号テスト不在 | 高 | **解消** – `test_turbo_standard_lengths.py` で全 5 長 × rate 1/3・1/6 の roundtrip + 全 5 長 × 4 レートの自動判別を検証 |
-| G-4 | Turbo に外部参照ゴールデンベクトルテスト不在 | 中 | **一部解消** – インタリーバ K=1784 を外部参照（mdmoctezuma/CCSDSTurboCode の ccsdsSize1784.txt）と照合（1784 点完全一致）。他長・エンコード出力の照合は未実施 |
+| G-4 | Turbo QPP インタリーバの外部照合 | 中 | **解消** – 公式 CCSDS §6.3g 数式の独立再実装と全 5 標準長を照合。K=1784 はさらに外部参照ファイルと一致 |
+| G-4b | Turbo Annex A 符号語ベクトル不在 | 中 | **未解消** – 公開されている Annex A 符号語データが見つからない。代替として独立 QPP 検証で信頼性を確保 |
 | G-5 | BER/FER Monte-Carlo シミュレーション不在 | 中 | **解消** – `test_ber_fer_simulation.py` で AWGN 上 conv/turbo の BER/FER 単調性を検証 |
 | G-6 | CI が reedsolo なしで実行され訂正テストが失敗する可能性 | 中 | **解消** – `pyproject.toml` dev extras に reedsolo 追加 |
 | G-7 | ドキュメント 5 件が現行実装と矛盾 | 低 | **解消** – 5 件すべて更新済み（+ 追加検証した 2 箇所の矛盾も修正） |
-| G-8 | `BaseEncoder`/`BaseDecoder` 抽象基底クラス未実装 | 中 | **未解消** – AGENTS.md §1 の要件。API 統一・プラグイン化に影響。優先度中として追加対応を検討 |
+| G-8 | `BaseEncoder`/`BaseDecoder` 抽象基底クラス未実装 | 中 | **解消** – `api.py` に `BaseEncoder`/`BaseDecoder` (ABC) を追加し、3 コーデックが継承。`test_base_codec.py` で検証 |
 | G-9 | ビット列 API が `np.uint8` ndarray で統一されていない | 低〜中 | **未解消** – AGENTS.md §1/§4.1 のデータ型基準。機能的には問題ないが、型契約・ベクトル化の一貫性が損なわれる |
 
 ---
@@ -154,7 +156,7 @@
 ## 付記
 
 - 本マトリックスの `file:line` 引用は検証スクリプトにより実在確認済み。テスト名はテストディレクトリの実スキャンで確認済み。
-- 実行証跡: `pytest` 189 passed → 228 passed → **238 passed**（2026-08-10, Python 3.14.4）。`ruff check src/ccsds_codec tests` も全通過。
+- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → **267 passed**（2026-08-10, Python 3.14.4）。`ruff check src/ccsds_codec tests` も全通過。
 - RS のゴールデンベクトル (`test_rs.py::test_encode_known_vector`) は reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) との parity 一致で検証。
 - CONV のゴールデンベクトル (`test_conv_known.py`) は gr-satellites の GNU Radio 実装とのビット一致で検証。
 - Turbo インタリーバのゴールデンベクトル (`test_turbo_golden.py`) は mdmoctezuma/CCSDSTurboCode の `ccsdsSize1784.txt`（CCSDS 標準インタリーバ表）との K=1784 完全一致で検証（`tests/data/ccsdsSize1784.txt` としてコミット、sha256 c7094e37...）。
