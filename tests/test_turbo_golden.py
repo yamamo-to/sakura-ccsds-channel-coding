@@ -14,15 +14,17 @@ The file is committed at ``tests/data/ccsdsSize1784.txt``
 
 Encoder golden vectors
 ----------------------
-Encoder output vectors for the unpunctured rates 1/3, 1/4 and 1/6 and for all
-five CCSDS block lengths are generated from the independent C reference
+Encoder output vectors are generated from the independent C reference
 implementation ``geeanlooca/deepspace-turbo``
 (https://github.com/geeanlooca/deepspace-turbo), which implements CCSDS
 131.0-B-2 Turbo codes.  The deterministic input used for the vectors is the
-alternating bit sequence ``[0, 1, 0, 1, ...]``.  Rate 1/2 is not included
-because the puncturing pattern used by that reference differs from the CCSDS
-standard pattern; the standard pattern is verified structurally in the encoder
-tests instead.
+alternating bit sequence ``[0, 1, 0, 1, ...]``.
+
+Rates 1/3, 1/4 and 1/6 are taken directly from that reference.  Rate 1/2 is
+derived by applying the CCSDS 131.0-B-4 §3.4 puncturing pattern
+``(out 0a, out 1a, out 0a, out 1b)`` to the rate-1/3 reference vectors,
+because the puncturing pattern used by ``deepspace-turbo`` for rate 1/2
+differs from the CCSDS standard.
 """
 
 from pathlib import Path
@@ -62,9 +64,9 @@ def test_ccsds_perm_1784_is_bijective():
 
 
 @pytest.mark.parametrize("K", STANDARD_K)
-@pytest.mark.parametrize("rate", ["1/3", "1/4", "1/6"])
+@pytest.mark.parametrize("rate", ["1/2", "1/3", "1/4", "1/6"])
 def test_turbo_encode_matches_golden_vector(K: int, rate: str) -> None:
-    """Encoder output matches an independent reference for rates 1/3, 1/4, 1/6."""
+    """Encoder output matches the reference vector for the selected rate."""
     rcode = rate.replace("/", "")
     golden = _load_bitstring(DATA_DIR / f"turbo_k{K}_r{rcode}_golden.txt")
     bits = [i % 2 for i in range(K)]
