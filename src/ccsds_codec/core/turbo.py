@@ -181,9 +181,7 @@ def encode(bits: list[int], puncture: bool = False, rate: str | None = None) -> 
     if effective_rate in ("1/2", "1/3"):
         upper = _rsc_streams(bits, _UPPER_GENS[effective_rate])  # [sys, G1]
         lower = _rsc_streams(ibits, _LOWER_GENS[effective_rate])  # [sys, G1]
-        blocks = [
-            [upper[0][i], upper[1][i], lower[1][i]] for i in range(K + TAIL)
-        ]
+        blocks = [[upper[0][i], upper[1][i], lower[1][i]] for i in range(K + TAIL)]
         if effective_rate == "1/2":
             # Puncture: even codeword keeps upper G1, odd keeps lower G1.
             out: list[int] = []
@@ -196,10 +194,7 @@ def encode(bits: list[int], puncture: bool = False, rate: str | None = None) -> 
     if effective_rate == "1/4":
         upper = _rsc_streams(bits, _UPPER_GENS["1/4"])  # [sys, G2, G3]
         lower = _rsc_streams(ibits, _LOWER_GENS["1/4"])  # [sys, G1]
-        blocks = [
-            [upper[0][i], upper[1][i], upper[2][i], lower[1][i]]
-            for i in range(K + TAIL)
-        ]
+        blocks = [[upper[0][i], upper[1][i], upper[2][i], lower[1][i]] for i in range(K + TAIL)]
         return [b for blk in blocks for b in blk]
 
     # rate 1/6
@@ -440,9 +435,7 @@ def _k_for_rate(stream_len: int, rate: str) -> int:
     if stream_len < ncomp * (TAIL + 1):
         raise ValueError(f"Rate-{rate} stream too short: {stream_len} bits")
     if stream_len % ncomp != 0:
-        raise ValueError(
-            f"Rate-{rate} stream length {stream_len} is not a multiple of {ncomp}"
-        )
+        raise ValueError(f"Rate-{rate} stream length {stream_len} is not a multiple of {ncomp}")
     return stream_len // ncomp - TAIL
 
 
@@ -500,7 +493,7 @@ def decode(punctured_bits: list[int], iterations: int = 5, rate: str | None = No
             raise ValueError(f"Unsupported Turbo code rate: {rate}")
         K = _k_for_rate(len(stream), rate)
     if iterations <= 0:
-        return stream[0::NCOMP[rate]][:K]
+        return stream[0 :: NCOMP[rate]][:K]
     rx = _llr_array(stream)
     return _turbo_decode_core(rx, rate, K, iterations).tolist()
 

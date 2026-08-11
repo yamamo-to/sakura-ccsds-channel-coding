@@ -335,9 +335,7 @@ def _depuncture(rx: np.ndarray, pattern: str) -> np.ndarray:
         if cnt == len(rx):
             break
         if cnt > len(rx):
-            raise ValueError(
-                f"Invalid punctured stream length {len(rx)} for pattern {pattern!r}"
-            )
+            raise ValueError(f"Invalid punctured stream length {len(rx)} for pattern {pattern!r}")
         L += 2
     is_int = rx.dtype.kind in "iu"
     out = np.empty(L, dtype=np.int64 if is_int else np.float64)
@@ -352,9 +350,7 @@ def _depuncture(rx: np.ndarray, pattern: str) -> np.ndarray:
     return out
 
 
-def viterbi_decode(
-    soft_bits: list[int] | np.ndarray, rate: str = "1/2"
-) -> list[int]:
+def viterbi_decode(soft_bits: list[int] | np.ndarray, rate: str = "1/2") -> list[int]:
     """Viterbi decoder for the CCSDS convolutional code (hard or soft input).
 
     ``soft_bits`` is the received symbol stream at code rate ``rate``
@@ -404,6 +400,4 @@ def decode_byte_padded(soft_bits: list[int], rate: str) -> list[int]:
             continue
         if len(dep) % 16 == 0:
             return viterbi_decode(cand, rate=rate)
-    raise ValueError(
-        f"Unrecognized {rate} stream: no valid length within the last 8 bits"
-    )
+    raise ValueError(f"Unrecognized {rate} stream: no valid length within the last 8 bits")

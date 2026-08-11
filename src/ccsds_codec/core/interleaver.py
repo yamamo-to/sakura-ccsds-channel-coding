@@ -38,9 +38,7 @@ def ccsds_perm(K: int) -> list[int]:
         ValueError: If ``K`` is not a positive multiple of 8.
     """
     if K <= 0 or K % _K1 != 0:
-        raise ValueError(
-            f"CCSDS §6.3g interleaver requires a block length divisible by 8, got {K}"
-        )
+        raise ValueError(f"CCSDS §6.3g interleaver requires a block length divisible by 8, got {K}")
     k2 = K // _K1
     perm: list[int] = []
     for s in range(1, K + 1):  # 1-based position within the block
