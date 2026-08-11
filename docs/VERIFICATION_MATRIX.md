@@ -2,7 +2,7 @@
 
 **対象規格**: CCSDS 131.0-B-4 (TM Synchronization and Channel Coding)
 **対象実装**: `ccsds-codec` (Python 3.11+)
-**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 現時点 287 passed に更新）
+**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed）→ **2026-08-11: 314 passed**（in-process CLI テスト `test_cli.py`・エッジカバレッジテスト `test_edge_coverage.py` 追加、`BaseEncoder`/`BaseDecoder` の Generic 化）
 **検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 287 passed
 
 ---
@@ -113,7 +113,7 @@
 |---|---|---|---|---|
 | CI-01 | `.github/workflows/ci.yml` | `pip install .[dev]` に reedsolo が含まれない → CI で `test_rs_decode_with_correctable_errors` 等が失敗する可能性 | ✅ 解決 | **reedsolo を dev extras に追加済み** (`pyproject.toml`)。CI クリーン環境でも訂正能力テストが通る。リスク G-6 解消 |
 | DOC-01 | `docs/ccsds_spec.md` | CONV 生成多項式が `G1=121₈`（TC 方式）表記で、実装 `171₈/133₈` と矛盾 | ✅ 解決 | `G1=171₈ (non-inverting)` / `G2=133₈ (inverted on the channel)` に修正済み |
-| DOC-02 | `docs/COMPATIBILITY.md` | Turbo が「簡易デモ・非互換」と記載 → 実装は正式 RSC/QPP/Log-MAP に更新済み | ✅ 解決 | Turbo 行を「完全実装（RSC K=5, g0=23₈, g1=33₈, QPP, Log-MAP）」に更新し、コメント列も「準拠実装」に整合 |
+| DOC-02 | `docs/COMPATIBILITY.md` | Turbo が「簡易デモ・非互換」と記載 → 実装は正式 RSC/QPP/Log-MAP に更新済み | ✅ 解決 | マトリックス表の Turbo 行に加え、**2026-08-11 に結論セクションの「簡易デモ実装」記述・Randomizer 多項式表記（x⁷+x⁶+1 → x⁸+x⁷+x⁵+x³+1）・Viterbi 記述（ハード決定 → ハード/ソフト判定）・G-4 残存記述（検証待ち → 照合済み）も更新済み** |
 | DOC-03 | `docs/COMPATIBILITY_TURBO.md` | f1=17/f2=31 の旧インタリーバ記述が残存 | ✅ 解決 | QPP 記述 (k1=8, k2=K/8) に修正済み。さらに `decode_unpunctured` の「ハード決定 Viterbi」誤記も Log-MAP (BCJR) に修正 |
 | DOC-04 | `docs/COMPATIBILITY_CLTU.md` | 存在しない `ccsds_codec.cltu` モジュールへの参照 | ✅ 解決 | 実在モジュール構成に合わせて更新済み |
 | DOC-05 | `docs/architecture.md` | `src/ccsds/` レイアウト記述が現行 `src/ccsds_codec/` と不一致 | ✅ 解決 | `src/ccsds_codec/`（core/ + api.py + config.py + cli.py + shim）構成に更新済み |
@@ -156,7 +156,7 @@
 ## 付記
 
 - 本マトリックスの `file:line` 引用は検証スクリプトにより実在確認済み。テスト名はテストディレクトリの実スキャンで確認済み。
-- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → **287 passed**（2026-08-10, Python 3.14.4）。`ruff check src/ccsds_codec tests` も全通過。
+- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed（2026-08-10）→ **314 passed**（2026-08-11, Python 3.14.4）。`ruff check src/ccsds_codec tests` は `tests/test_rs_cli.py` の pre-existing 違反 2 件（`import os, subprocess, sys` の 1 行 import・トップレベル空行 1 行）を除き通過。
 - RS のゴールデンベクトル (`test_rs.py::test_encode_known_vector`) は reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) との parity 一致で検証。
 - CONV のゴールデンベクトル (`test_conv_known.py`) は gr-satellites の GNU Radio 実装とのビット一致で検証。
 - Turbo インタリーバのゴールデンベクトル (`test_turbo_golden.py`) は mdmoctezuma/CCSDSTurboCode の `ccsdsSize1784.txt`（CCSDS 標準インタリーバ表）との K=1784 完全一致で検証（`tests/data/ccsdsSize1784.txt` としてコミット、sha256 c7094e37...）。
