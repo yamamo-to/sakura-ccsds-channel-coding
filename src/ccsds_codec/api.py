@@ -15,6 +15,8 @@ The low-level functions remain available from the codec modules
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+
 from .config import ConvConfig, RSConfig, TurboConfig
 from .core.convolutional import encode as _conv_encode
 from .core.convolutional import viterbi_decode as _viterbi_decode
@@ -26,10 +28,41 @@ from .core.turbo import decode as _turbo_decode
 from .core.turbo import decode_unpunctured as _turbo_decode_unpunctured
 from .core.turbo import encode as _turbo_encode
 
-__all__ = ["RSCodec", "ConvCodec", "TurboCodec", "Randomizer"]
+__all__ = [
+    "BaseEncoder",
+    "BaseDecoder",
+    "RSCodec",
+    "ConvCodec",
+    "TurboCodec",
+    "Randomizer",
+]
 
 
-class RSCodec:
+class BaseEncoder(ABC):
+    """Abstract base class for CCSDS encoders.
+
+    All encoder implementations in this package inherit from this class and
+    provide a concrete :meth:`encode` method.
+    """
+
+    @abstractmethod
+    def encode(self, data: bytes | list[int]) -> bytes | list[int]:
+        """Encode *data* and return the encoded representation."""
+
+
+class BaseDecoder(ABC):
+    """Abstract base class for CCSDS decoders.
+
+    All decoder implementations in this package inherit from this class and
+    provide a concrete :meth:`decode` method.
+    """
+
+    @abstractmethod
+    def decode(self, encoded: bytes | list[int]) -> bytes | list[int]:
+        """Decode *encoded* and return the original representation."""
+
+
+class RSCodec(BaseEncoder, BaseDecoder):
     """Reed‑Solomon (255,223) codec wrapper.
 
     Applies block interleaving of depth 1…5 as specified by CCSDS 131.0‑B‑4
@@ -51,7 +84,7 @@ class RSCodec:
         return _rs_decode(encoded, depth=self.config.depth)
 
 
-class ConvCodec:
+class ConvCodec(BaseEncoder, BaseDecoder):
     """Convolutional encoder/decoder (rates 1/2, 2/3, 3/4, 5/6, 7/8).
 
     Args:
@@ -71,7 +104,7 @@ class ConvCodec:
         return _viterbi_decode(soft_bits, rate=self.config.rate)
 
 
-class TurboCodec:
+class TurboCodec(BaseEncoder, BaseDecoder):
     """Turbo encoder/decoder (rates 1/2, 1/3, 1/4, 1/6).
 
     Args:
