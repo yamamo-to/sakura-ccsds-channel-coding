@@ -8,6 +8,6 @@ setup(
     python_requires=">=3.11",
     install_requires=["numpy", "numba"],
     extras_require={
-        "dev": ["pytest", "pytest-cov", "coverage"],
+        "dev": ["pytest", "pytest-cov", "ruff", "reedsolo"],
     },
 )
