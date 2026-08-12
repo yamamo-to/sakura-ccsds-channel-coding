@@ -103,7 +103,7 @@
 | ID | 要求 | 要求内容 | 実装箇所 | 検証テスト | ステータス | 備考・リスク |
 |---|---|---|---|---|---|---|
 | PERF-01 | AGENTS.md §3 (Tester) | AWGN 上 Monte-Carlo BER/FER | `tests/test_ber_fer_simulation.py` (`simulate_conv` / `simulate_turbo`) | `test_ber_fer_simulation.py::test_conv_ber_fer_monotonic[500]`, `test_ber_fer_simulation.py::test_turbo_ber_fer_monotonic[200]` | ✅ 準拠 | **BER/FER シミュレーションを追加済み**（AWGN・BPSK、Eb/N0 に対する BER/FER 単調性を検証）。リスク G-5 解消 |
-| PERF-02 | AGENTS.md §4.2 | 計算コアの numba JIT | `core/convolutional.py` (Viterbi カーネル), `core/turbo.py:256` (`_bcjr_kernel`) | `test_turbo_perf.py::test_decode_performance` | ⚠️ 部分的 | 性能テストは 1 件のみ。numba 非搭載環境での動作は未検証 |
+| PERF-02 | AGENTS.md §4.2 | 計算コアの numba JIT | `core/convolutional.py` (Viterbi カーネル), `core/turbo.py:256` (`_bcjr_kernel`) | `test_perf.py::test_conv_encode_decode_performance`, `test_perf.py::test_conv_decode_numba_offline` | ✅ 解決 | 全 4 コーデック（conv/R/RS/Turbo）の性能テスト + numba 非搭載環境テストを追加。JIT 下: conv 0.6ms, turbo 24ms, RS 2.2ms。offline: conv 174ms, turbo 502ms |
 
 ---
 
@@ -125,14 +125,14 @@
 | カテゴリ | ✅ 準拠 | ⚠️ 部分的 | ✗ 非準拠 | ❓ 未検証 |
 |---|---|---|---|---|
 | Reed-Solomon | 6 | — | — | 1 |
-| Convolutional | 7 | — | — | — |
+| Convolutional | 8 | — | — | — |
 | Turbo | 11 | — | — | — |
 | Randomizer | 4 | — | — | — |
 | 共通規約 | 2 | — | — | — |
 | アーキテクチャ・データ型 | 3 | — | — | — |
 | 性能目標 | 1 | 1 | — | — |
 | CI・ドキュメント | 6 | — | — | — |
-| **合計** | **40** | **1** | **0** | **1** |
+| **合計** | **41** | **0** | **0** | **1** |
 
 ---
 
@@ -157,7 +157,7 @@
 ## 付記
 
 - 本マトリックスの `file:line` 引用は検証スクリプトにより実在確認済み。テスト名はテストディレクトリの実スキャンで確認済み。
-- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed（2026-08-10）→ **314 passed**（2026-08-11, Python 3.14.4）→ **338 passed**（デコーダ外部参照照合を全 4 標準長に拡張）→ **339 passed**（config 整合性テスト追加）→ **340 passed**（TURBO-11 反復回数バリデーションテスト追加）。`ruff check src/ccsds_codec tests` は通過済み。
+- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed（2026-08-10）→ **314 passed**（2026-08-11, Python 3.14.4）→ **338 passed**（デコーダ外部参照照合を全 4 標準長に拡張）→ **339 passed**（config 整合性テスト追加）→ **340 passed**（TURBO-11 反復回数バリデーションテスト追加）→ **344 passed**（PERF-02 性能テスト + numba 非搭載環境テスト）。`ruff check src/ccsds_codec tests` は通過済み。
 - RS のゴールデンベクトル (`test_rs.py::test_encode_known_vector`) は reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) との parity 一致で検証。
 - CONV のゴールデンベクトル (`test_conv_known.py`) は gr-satellites の GNU Radio 実装とのビット一致で検証。
 - Turbo インタリーバのゴールデンベクトル (`test_turbo_golden.py`) は mdmoctezuma/CCSDSTurboCode の `ccsdsSize1784.txt`（CCSDS 標準インタリーバ表）との K=1784 完全一致で検証（`tests/data/ccsdsSize1784.txt` としてコミット、sha256 c7094e37...）。
