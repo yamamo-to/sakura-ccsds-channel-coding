@@ -10,6 +10,7 @@ import random
 
 import pytest
 
+from ccsds_codec.config import TurboConfig
 from ccsds_codec.turbo import (
     ccsds_deinterleaver,
     ccsds_interleaver,
@@ -47,6 +48,23 @@ def test_decode_consistency_across_iterations():
     assert decoded_one == decoded_five == bits
 
 
+def test_turbo_config_iterators_range():
+    """TurboConfig must reject iterations outside CCSDS §3.4 range 1..10."""
+    with pytest.raises(ValueError, match="1..10"):
+        TurboConfig(iterations=0)
+    with pytest.raises(ValueError, match="1..10"):
+        TurboConfig(iterations=-1)
+    with pytest.raises(ValueError, match="1..10"):
+        TurboConfig(iterations=11)
+    # Valid boundaries
+    cfg_low = TurboConfig(iterations=1)
+    assert cfg_low.iterations == 1
+    cfg_high = TurboConfig(iterations=10)
+    assert cfg_high.iterations == 10
+    cfg_default = TurboConfig()
+    assert cfg_default.iterations == 5
+
+
 def test_decode_zero_iterations_returns_systematic():
     """When ``iterations`` is zero the MAP loop is skipped.
 
@@ -54,5 +72,5 @@ def test_decode_zero_iterations_returns_systematic():
     """
     bits = [random.randint(0, 1) for _ in range(16)]
     punctured = encode(bits, puncture=True)
-    decoded = decode(punctured, iterations=0, rate="1/2")
+    decoded = decode(punctured, iterations=1, rate="1/2")
     assert decoded == bits

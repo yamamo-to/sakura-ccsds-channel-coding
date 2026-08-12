@@ -53,11 +53,15 @@ class TurboConfig:
 
     Attributes:
         rate: Code rate (default ``1/3``, the full unpunctured scheme).
-        iterations: Number of Log-MAP turbo iterations (default 5).
+        iterations: Number of Log-MAP turbo iterations (default 5, CCSDS §3.4 max 10).
     """
 
     rate: TurboRate = TurboRate.R1_3
     iterations: int = 5
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.iterations <= 10:
+            raise ValueError(f"iterations must be in 1..10, got {self.iterations}")
 
 
 @dataclass(frozen=True)

@@ -62,7 +62,7 @@
 | TURBO-08 | §3.1.1 | ブロック長からのレート自動判別 | `core/turbo.py` (`_detect_rate_k`) | `test_turbo_properties.py::test_rate_autodetect_is_unique_and_correct`, `test_turbo_properties.py::test_rate_autodetect_rejects_unknown_length` | ✅ 準拠 | |
 | TURBO-09 | Annex A / §3.4 | 付録の符号語（エンコード出力）基準テストベクトル | `core/turbo.py` (`encode`) | `test_turbo_golden.py::test_turbo_encode_matches_golden_vector` | ✅ 準拠 | rates 1/3/1/4/1/6 は `geeanlooca/deepspace-turbo` 参照実装と直接照合。rate 1/2 は同じ参照の rate-1/3 出力に CCSDS §3.4 の puncturing パターンを適用した derived vector で照合（全 4 標準長）。※16384 は参照実装が非対応（K%1784≠0）のため照合対象外（規格外長） |
 | TURBO-10 | §6.3g / Annex H | QPP インタリーバ（全 4 標準ブロック長） | `core/interleaver.py` (`ccsds_perm`) | `test_turbo_interleaver_extended.py` | ✅ 準拠 | 公式 CCSDS §6.3g 数式の独立再実装と照合済み（1784/3568/7136/8920）。K=1784 はさらに外部参照ファイル `ccsdsSize1784.txt` と一致。k1=8 固定・k2=K/8 は 131.0-B-4 Table 6-3 と一致 |
-| TURBO-11 | §3.4 | 最大反復回数（規格例: 10 回） | デフォルト 5 回、上限未設定 | `test_turbo_extended.py::test_decode_consistency_across_iterations` | ⚠️ 部分的 | 反復回数は設定可能だが上限強制なし |
+| TURBO-11 | §3.4 | 最大反復回数（規格例: 10 回） | TurboConfig.__post_init__ で 1..10 を強制 | `test_turbo_extended.py::test_turbo_config_iterators_range` | ✅ 解決 | TurboConfig 生成時に範囲外の iterations で ValueError を送出 |
 
 ---
 
@@ -126,13 +126,13 @@
 |---|---|---|---|---|
 | Reed-Solomon | 6 | — | — | 1 |
 | Convolutional | 7 | — | — | — |
-| Turbo | 10 | 1 | — | — |
+| Turbo | 11 | — | — | — |
 | Randomizer | 4 | — | — | — |
 | 共通規約 | 2 | — | — | — |
 | アーキテクチャ・データ型 | 3 | — | — | — |
 | 性能目標 | 1 | 1 | — | — |
 | CI・ドキュメント | 6 | — | — | — |
-| **合計** | **39** | **2** | **0** | **1** |
+| **合計** | **40** | **1** | **0** | **1** |
 
 ---
 
@@ -157,7 +157,7 @@
 ## 付記
 
 - 本マトリックスの `file:line` 引用は検証スクリプトにより実在確認済み。テスト名はテストディレクトリの実スキャンで確認済み。
-- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed（2026-08-10）→ **314 passed**（2026-08-11, Python 3.14.4）→ **338 passed**（デコーダ外部参照照合を全 4 標準長に拡張）。`ruff check src/ccsds_codec tests` は `tests/test_rs_cli.py` の pre-existing 違反 2 件（`import os, subprocess, sys` の 1 行 import・トップレベル空行 1 行）を除き通過。
+- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed（2026-08-10）→ **314 passed**（2026-08-11, Python 3.14.4）→ **338 passed**（デコーダ外部参照照合を全 4 標準長に拡張）→ **339 passed**（config 整合性テスト追加）→ **340 passed**（TURBO-11 反復回数バリデーションテスト追加）。`ruff check src/ccsds_codec tests` は通過済み。
 - RS のゴールデンベクトル (`test_rs.py::test_encode_known_vector`) は reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) との parity 一致で検証。
 - CONV のゴールデンベクトル (`test_conv_known.py`) は gr-satellites の GNU Radio 実装とのビット一致で検証。
 - Turbo インタリーバのゴールデンベクトル (`test_turbo_golden.py`) は mdmoctezuma/CCSDSTurboCode の `ccsdsSize1784.txt`（CCSDS 標準インタリーバ表）との K=1784 完全一致で検証（`tests/data/ccsdsSize1784.txt` としてコミット、sha256 c7094e37...）。
