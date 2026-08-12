@@ -16,15 +16,18 @@ from .config import ConvConfig, ConvRate, TurboConfig, TurboRate, RSConfig
 from .core.bits import bits_to_bytes, bits_to_bytes_strict, bytes_to_bits
 
 __all__ = [
+    # High-level codec classes
     "ConvCodec",
     "RSCodec",
     "Randomizer",
     "TurboCodec",
+    # Configuration
     "ConvConfig",
     "ConvRate",
     "TurboConfig",
     "TurboRate",
     "RSConfig",
+    # Bit/byte utilities
     "bits_to_bytes",
     "bits_to_bytes_strict",
     "bytes_to_bits",

@@ -282,7 +282,7 @@ def encode_cxx(bits: list[int], terminate: bool = True) -> list[int]:
         raise ValueError("Input bit list must not be empty for C++‑compatible encode")
     _validate_bits(bits)
 
-    # ---- 1. Pre‑compute output table as integer (bit1<<1|bit0, identical to ViterbiCodec) ----
+    # ---- 2. Pre‑compute output table as integer (bit1<<1|bit0, identical to ViterbiCodec) ----
     outputs: list[int] = [0] * (1 << K)
     for st in range(1 << K):
         val = 0
@@ -356,13 +356,18 @@ def _depuncture(rx: np.ndarray, pattern: str) -> np.ndarray:
             raise ValueError(f"Invalid punctured stream length {len(rx)} for pattern {pattern!r}")
         L += 2
     is_int = rx.dtype.kind in "iu"
-    fill = -1 if is_int else 0.0
-    # Build mask: 1 where pattern transmits, 0 where it punctures
-    mask = np.array([1 if pattern[i % pat_len] == "1" else 0 for i in range(L)], dtype=np.int64)
-    out = np.full(L, fill, dtype=np.float64)
-    out[mask == 1] = rx
+    fill = np.int64(-1) if is_int else np.float64(0.0)
+    # Precompute pattern cycle mask (same for all depuncture calls with same pattern)
+    cycle_mask = np.array([1 if pattern[i % pat_len] == "1" else 0 for i in range(pat_len)], dtype=np.int64)
+    # Extend mask to full length using broadcast
+    full_mask = np.tile(cycle_mask, (L + pat_len - 1) // pat_len)[:L]
+    out: np.ndarray
     if is_int:
-        return out.astype(np.int64)
+        out = np.full(L, -1, dtype=np.int64)
+        out[full_mask == 1] = rx.astype(np.int64)
+    else:
+        out = np.full(L, 0.0, dtype=np.float64)
+        out[full_mask == 1] = rx.astype(np.float64)
     return out
 
 

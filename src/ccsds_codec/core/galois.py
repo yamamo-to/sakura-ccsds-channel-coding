@@ -152,8 +152,14 @@ def gf_from_dual_basis(value: int) -> int:
     Returns:
         The same field element expressed in conventional‑basis representation.
     """
-    result = 0
-    for i in range(8):
-        if value & (1 << i):
-            result ^= DUAL_BASIS[i]
-    return result
+    r = 0
+    # Unrolled loop
+    if value & 0x01: r ^= DUAL_BASIS[0]
+    if value & 0x02: r ^= DUAL_BASIS[1]
+    if value & 0x04: r ^= DUAL_BASIS[2]
+    if value & 0x08: r ^= DUAL_BASIS[3]
+    if value & 0x10: r ^= DUAL_BASIS[4]
+    if value & 0x20: r ^= DUAL_BASIS[5]
+    if value & 0x40: r ^= DUAL_BASIS[6]
+    if value & 0x80: r ^= DUAL_BASIS[7]
+    return r

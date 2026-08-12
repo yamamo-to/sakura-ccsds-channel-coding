@@ -65,10 +65,11 @@ def scramble(bits: list[int]) -> list[int]:
         matching the "one sequence per codeblock" CCSDS requirement.
     """
     state = SEED
-    out_bits: list[int] = []
-    for bit in bits:
+    n = len(bits)
+    out_bits: list[int] = [0] * n
+    for i in range(n):
         lfsr_bit, state = _lfsr_next(state)
-        out_bits.append(bit ^ lfsr_bit)
+        out_bits[i] = bits[i] ^ lfsr_bit
     return out_bits
 
 

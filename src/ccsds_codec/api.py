@@ -68,6 +68,9 @@ class BaseDecoder(ABC, Generic[T_in, T_out]):
         """Decode *encoded* and return the original representation."""
 
 
+_RS_DEFAULT = RSConfig()
+
+
 class RSCodec(BaseEncoder[bytes, bytes], BaseDecoder[bytes, bytes]):
     """Reed‑Solomon (255,223) codec wrapper.
 
@@ -79,7 +82,7 @@ class RSCodec(BaseEncoder[bytes, bytes], BaseDecoder[bytes, bytes]):
     """
 
     def __init__(self, config: RSConfig | None = None) -> None:
-        self.config = config or RSConfig()
+        self.config = config if config is not None else _RS_DEFAULT
 
     def encode(self, data: bytes) -> bytes:
         """Encode *data* at the configured interleaving depth."""
@@ -88,6 +91,9 @@ class RSCodec(BaseEncoder[bytes, bytes], BaseDecoder[bytes, bytes]):
     def decode(self, encoded: bytes) -> bytes:
         """Decode *encoded* at the configured interleaving depth."""
         return _rs_decode(encoded, depth=self.config.depth, dual_basis=self.config.dual_basis)
+
+
+_CONV_DEFAULT = ConvConfig()
 
 
 class ConvCodec(BaseEncoder[list[int], list[int]], BaseDecoder[list[int], list[int]]):
@@ -99,7 +105,7 @@ class ConvCodec(BaseEncoder[list[int], list[int]], BaseDecoder[list[int], list[i
     """
 
     def __init__(self, config: ConvConfig | None = None) -> None:
-        self.config = config or ConvConfig()
+        self.config = config if config is not None else _CONV_DEFAULT
 
     def encode(self, bits: list[int]) -> list[int]:
         """Encode *bits* at the configured rate."""
@@ -108,6 +114,9 @@ class ConvCodec(BaseEncoder[list[int], list[int]], BaseDecoder[list[int], list[i
     def decode(self, soft_bits: list[int]) -> list[int]:
         """Viterbi-decode *soft_bits* at the configured rate."""
         return _viterbi_decode(soft_bits, rate=self.config.rate)
+
+
+_TURBO_DEFAULT = TurboConfig()
 
 
 class TurboCodec(BaseEncoder[list[int], list[int]], BaseDecoder[list[int], list[int]]):
@@ -119,7 +128,7 @@ class TurboCodec(BaseEncoder[list[int], list[int]], BaseDecoder[list[int], list[
     """
 
     def __init__(self, config: TurboConfig | None = None) -> None:
-        self.config = config or TurboConfig()
+        self.config = config if config is not None else _TURBO_DEFAULT
 
     def encode(self, bits: list[int]) -> list[int]:
         """Encode *bits* at the configured rate."""

@@ -119,6 +119,22 @@ _LOWER_GENS = {
 #: 16384 as an extension (not a standard Turbo block length; LDPC §7.4 only).
 STANDARD_K = (1784, 3568, 7136, 8920, 16384)
 
+# --- Trellis table cache (built once per constituent-gen set) ---
+_trellis_cache: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] | None = None
+_trellis_counter = 0
+
+
+def _get_trellis(gens: list[int]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return cached trellis tables, building them once per unique gen set."""
+    global _trellis_cache, _trellis_counter
+    key = id(tuple(gens))
+    if _trellis_cache is None or key not in _trellis_cache:
+        if _trellis_cache is None:
+            _trellis_cache = {}
+        _trellis_cache[key] = _build_trellis(gens)
+        _trellis_counter += 1
+    return _trellis_cache[key]
+
 
 def _rsc_streams(bits: list[int], gens: list[int]) -> list[list[int]]:
     """Encode one recursive RSC constituent, one stream per generator.
@@ -135,17 +151,18 @@ def _rsc_streams(bits: list[int], gens: list[int]) -> list[list[int]]:
     Returns:
         One list of length ``len(bits) + TAIL`` per generator.
     """
+    n = len(bits)
+    out_len = n + TAIL
+    n_streams = len(gens)
+    streams: list[list[int]] = [[0] * out_len for _ in range(n_streams)]
     state = 0
-    streams: list[list[int]] = [[] for _ in gens]
-    seq: list[int | None] = list(bits) + [None] * TAIL
-    for u in seq:
+    for i in range(n):
+        b = bits[i]
         D1, D2, D3, D4 = (state >> 3) & 1, (state >> 2) & 1, (state >> 1) & 1, state & 1
         fb = D3 ^ D4
-        if u is None:
-            u = fb  # termination: input = feedback -> register flushes to 0
-        new_D1 = u ^ fb
+        new_D1 = b ^ fb
         ns = (state >> 1) | (new_D1 << 3)
-        for g, st in zip(gens, streams):
+        for gi, g in enumerate(gens):
             v = (
                 ((g >> 4) & 1) * new_D1
                 ^ ((g >> 3) & 1) * D1
@@ -153,7 +170,25 @@ def _rsc_streams(bits: list[int], gens: list[int]) -> list[list[int]]:
                 ^ ((g >> 1) & 1) * D3
                 ^ (g & 1) * D4
             )
-            st.append(_parity(v))
+            streams[gi][i] = _parity(v)
+        state = ns
+    # Termination: flush register (CCSDS §3.2.3)
+    for step in range(TAIL):
+        D1, D2, D3, D4 = (state >> 3) & 1, (state >> 2) & 1, (state >> 1) & 1, state & 1
+        fb = D3 ^ D4
+        u = fb
+        new_D1 = u ^ fb
+        ns = (state >> 1) | (new_D1 << 3)
+        idx = n + step
+        for gi, g in enumerate(gens):
+            v = (
+                ((g >> 4) & 1) * new_D1
+                ^ ((g >> 3) & 1) * D1
+                ^ ((g >> 2) & 1) * D2
+                ^ ((g >> 1) & 1) * D3
+                ^ (g & 1) * D4
+            )
+            streams[gi][idx] = _parity(v)
         state = ns
     return streams
 
@@ -194,34 +229,50 @@ def encode(bits: list[int], puncture: bool = False, rate: str | None = None) -> 
 
     K = len(bits)
     ibits = ccsds_interleaver(bits)
+    N = K + TAIL
 
-    if effective_rate in ("1/2", "1/3"):
-        upper = _rsc_streams(bits, _UPPER_GENS[effective_rate])  # [sys, G1]
-        lower = _rsc_streams(ibits, _LOWER_GENS[effective_rate])  # [sys, G1]
-        blocks = [[upper[0][i], upper[1][i], lower[1][i]] for i in range(K + TAIL)]
-        if effective_rate == "1/2":
-            # Puncture: even codeword keeps upper G1, odd keeps lower G1.
-            out: list[int] = []
-            for cw, blk in enumerate(blocks):
-                out.append(blk[0])
-                out.append(blk[1] if cw % 2 == 0 else blk[2])
-            return out
-        return [b for blk in blocks for b in blk]
+    if effective_rate == "1/2":
+        upper = _rsc_streams(bits, _UPPER_GENS["1/2"])  # [sys, G1]
+        lower = _rsc_streams(ibits, _LOWER_GENS["1/2"])  # [sys, G1]
+        out: list[int] = [0] * (2 * N)
+        for i in range(N):
+            out[2 * i] = upper[0][i]
+            out[2 * i + 1] = upper[1][i] if i % 2 == 0 else lower[1][i]
+        return out
+
+    if effective_rate == "1/3":
+        upper = _rsc_streams(bits, _UPPER_GENS["1/3"])  # [sys, G1]
+        lower = _rsc_streams(ibits, _LOWER_GENS["1/3"])  # [sys, G1]
+        out = [0] * (3 * N)
+        for i in range(N):
+            out[3 * i] = upper[0][i]
+            out[3 * i + 1] = upper[1][i]
+            out[3 * i + 2] = lower[1][i]
+        return out
 
     if effective_rate == "1/4":
         upper = _rsc_streams(bits, _UPPER_GENS["1/4"])  # [sys, G2, G3]
         lower = _rsc_streams(ibits, _LOWER_GENS["1/4"])  # [sys, G1]
-        blocks = [[upper[0][i], upper[1][i], upper[2][i], lower[1][i]] for i in range(K + TAIL)]
-        return [b for blk in blocks for b in blk]
+        out = [0] * (4 * N)
+        for i in range(N):
+            out[4 * i] = upper[0][i]
+            out[4 * i + 1] = upper[1][i]
+            out[4 * i + 2] = upper[2][i]
+            out[4 * i + 3] = lower[1][i]
+        return out
 
     # rate 1/6
     upper = _rsc_streams(bits, _UPPER_GENS["1/6"])  # [sys, G1, G2, G3]
     lower = _rsc_streams(ibits, _LOWER_GENS["1/6"])  # [sys, G1, G3]
-    blocks = [
-        [upper[0][i], upper[1][i], upper[2][i], upper[3][i], lower[1][i], lower[2][i]]
-        for i in range(K + TAIL)
-    ]
-    return [b for blk in blocks for b in blk]
+    out = [0] * (6 * N)
+    for i in range(N):
+        out[6 * i] = upper[0][i]
+        out[6 * i + 1] = upper[1][i]
+        out[6 * i + 2] = upper[2][i]
+        out[6 * i + 3] = upper[3][i]
+        out[6 * i + 4] = lower[1][i]
+        out[6 * i + 5] = lower[2][i]
+    return out
 
 
 # --- trellis tables ---------------------------------------------------------
@@ -351,8 +402,8 @@ def _bcjr_kernel(  # pragma: no cover
         t1 = alpha[i] + g1 + beta[i + 1][ns[:, 1]]
         m0 = t0.max()
         m1 = t1.max()
-        l0 = m0 + np.log(np.sum(np.exp(t0 - m0)))
-        l1 = m1 + np.log(np.sum(np.exp(t1 - m1)))
+        l0 = np.log(np.sum(np.exp(t0 - m0))) + m0
+        l1 = np.log(np.sum(np.exp(t1 - m1))) + m1
         llr = l0 - l1
         app[i] = llr
         ext[i] = llr - la[i] - ch[0, i]
@@ -439,8 +490,8 @@ def _turbo_decode_core(rx: np.ndarray, rate: str, K: int, iterations: int) -> np
     """
     perm = np.asarray(ccsds_perm(K), dtype=np.int64)
     upper_ch, lower_ch = _demux(rx, rate, K, perm)
-    ns_u, x_u, p0u, p1u = _build_trellis(_UPPER_GENS[rate])
-    ns_l, x_l, p0l, p1l = _build_trellis(_LOWER_GENS[rate])
+    ns_u, x_u, p0u, p1u = _get_trellis(_UPPER_GENS[rate])
+    ns_l, x_l, p0l, p1l = _get_trellis(_LOWER_GENS[rate])
     la = np.zeros(K, dtype=np.float64)
     app = np.zeros(K, dtype=np.float64)
     for _ in range(iterations):

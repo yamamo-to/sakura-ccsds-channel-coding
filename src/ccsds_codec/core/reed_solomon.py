@@ -157,14 +157,19 @@ def encode(data: bytes, depth: int = 1, *, dual_basis: bool = False) -> bytes:
         raise ValueError(f"Interleaving depth must be between 1 and 5, got {depth}")
     if not data:
         return b""
-    out = bytearray()
     group_size = RS_K * depth
+    n_groups = (len(data) + group_size - 1) // group_size
+    output_size = n_groups * RS_N * depth
+    out = bytearray(output_size)
+    offset = 0
     for i in range(0, len(data), group_size):
         group = data[i : i + group_size]
         padded = group.ljust(group_size, b"\x00")
         blocks = _rs_split_stride(padded, depth)
         encoded_blocks = [encode_block(b, dual_basis=dual_basis) for b in blocks]
-        out.extend(_rs_merge_column_major(encoded_blocks))
+        merged = _rs_merge_column_major(encoded_blocks)
+        out[offset : offset + len(merged)] = merged
+        offset += len(merged)
     return bytes(out)
 
 
