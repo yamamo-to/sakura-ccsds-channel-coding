@@ -34,8 +34,5 @@ dist/
 *.egg-info/
 *.egg
 
-# CI workflow cache (if any)
-.github/workflows/ci.yml
-
 # Project‑specific temporary dirs
 .omo/
