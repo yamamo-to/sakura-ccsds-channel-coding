@@ -20,8 +20,9 @@ def bytes_to_bits(data: bytes) -> list[int]:
 
 def _validate_bits(bits: list[int]) -> None:
     """Raise :class:`ValueError` unless every element of *bits* is 0 or 1."""
-    if any(b not in (0, 1) for b in bits):
-        raise ValueError("bits list must contain only 0 or 1 values")
+    for i, b in enumerate(bits):
+        if b not in (0, 1):
+            raise ValueError(f"Bit at position {i} is not 0 or 1: {b}")
 
 
 def _pack_bits(bits: list[int]) -> bytes:
@@ -55,7 +56,6 @@ def bits_to_bytes_strict(bits: list[int]) -> bytes:
     Raises :class:`ValueError` otherwise. This mirrors the behaviour of libraries
     that expect full-byte aligned bit streams.
     """
-    bits = list(bits)
     _validate_bits(bits)
     if len(bits) % 8 != 0:
         raise ValueError("bits length must be a multiple of 8 for strict conversion")

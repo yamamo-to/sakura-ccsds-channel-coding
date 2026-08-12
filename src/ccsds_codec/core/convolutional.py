@@ -22,6 +22,8 @@ from __future__ import annotations
 import numpy as np
 from numba import njit
 
+from .bits import _validate_bits
+
 __all__ = [
     "G0",
     "G1",
@@ -44,7 +46,7 @@ K = 7  # constraint length
 MASK = (1 << K) - 1
 
 
-@njit(fastmath=True)
+@njit
 def _parity(x: int) -> int:
     """Return the parity (XOR of all bits) of ``x`` as 0 or 1."""
     p = 0
@@ -66,13 +68,6 @@ PUNCTURE_PATTERNS: dict[str, str] = {
 }
 
 
-def _validate_bits(bits: list[int]) -> None:
-    """Raise :class:`ValueError` unless every element of *bits* is 0 or 1."""
-    for i, b in enumerate(bits):
-        if b not in (0, 1):
-            raise ValueError(f"Bit at position {i} is not 0 or 1: {b}")
-
-
 def encode(bits: list[int], terminate: bool = False, rate: str = "1/2") -> list[int]:
     """Encode *bits* with the CCSDS convolutional code.
 
@@ -86,35 +81,54 @@ def encode(bits: list[int], terminate: bool = False, rate: str = "1/2") -> list[
     if not bits:
         return []
     _validate_bits(bits)
+    tail = K - 1 if terminate else 0
+    n_bits = len(bits) + tail
+    out: list[int] = [0] * (2 * n_bits)
     state = 0
-    out: list[int] = []
+    i = 0
     for b in bits:
         state = ((state << 1) | (b & 1)) & MASK
-        out.append(_parity(state & G0))
-        out.append(1 - _parity(state & G1))
+        out[i] = _parity(state & G0)
+        out[i + 1] = 1 - _parity(state & G1)
+        i += 2
     if terminate:
         for _ in range(K - 1):
             state = ((state << 1) | 0) & MASK
-            out.append(_parity(state & G0))
-            out.append(1 - _parity(state & G1))
+            out[i] = _parity(state & G0)
+            out[i + 1] = 1 - _parity(state & G1)
+            i += 2
     # Apply puncturing pattern if needed
     pattern = PUNCTURE_PATTERNS.get(rate)
     if pattern is None:
         raise ValueError(f"Unsupported convolutional code rate: {rate}")
     if pattern == "11":
         return out
-    punctured: list[int] = []
+    pat_ones = pattern.count("1")
     pat_len = len(pattern)
-    for i, bit in enumerate(out):
-        if pattern[i % pat_len] == "1":
-            punctured.append(bit)
-    return punctured
+    max_punctured = 2 * n_bits * pat_ones // pat_len + pat_ones
+    punctured: list[int] = [0] * max_punctured
+    j = 0
+    for ci, bit in enumerate(out):
+        if pattern[ci % pat_len] == "1":
+            punctured[j] = bit
+            j += 1
+    return punctured[:j]
 
 
 # --- Trellis tables and Viterbi kernels (numba JIT, per AGENTS.md §4.2) ---
 
+# Cache for trellis tables (G0, G1, K, MASK are module-level constants).
+__trellis_cache: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
 
-@njit(fastmath=True)
+
+def _get_trellis() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return cached trellis tables, building them on first call."""
+    global __trellis_cache
+    if __trellis_cache is None:
+        __trellis_cache = _build_tables()
+    return __trellis_cache
+
+
 def _build_tables() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Precompute the 2^K-state trellis tables.
 
@@ -137,7 +151,7 @@ def _build_tables() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return next_state, out0, out1
 
 
-@njit(fastmath=True)
+@njit
 def _viterbi_hard_kernel(
     rx: np.ndarray, next_state: np.ndarray, out0: np.ndarray, out1: np.ndarray
 ) -> np.ndarray:
@@ -189,7 +203,7 @@ def _viterbi_hard_kernel(
     return decoded
 
 
-@njit(fastmath=True)
+@njit
 def _viterbi_llr_kernel(
     rx: np.ndarray, next_state: np.ndarray, out0: np.ndarray, out1: np.ndarray
 ) -> np.ndarray:
@@ -272,38 +286,42 @@ def encode_cxx(bits: list[int], terminate: bool = True) -> list[int]:
 
     rev_polys = [rev(G0), rev(G1)]
 
-    # ---- 2. Pre‑compute output table (identical to ViterbiCodec::InitializeOutputs) ----
-    outputs: list[str] = ["" for _ in range(1 << K)]
-    for state in range(1 << K):
-        out_bits = []
+    # ---- 2. Pre‑compute output table as integer (bit1<<1|bit0, identical to ViterbiCodec) ----
+    outputs: list[int] = [0] * (1 << K)
+    for st in range(1 << K):
+        val = 0
         for poly in rev_polys:
-            tmp_state = state
-            tmp_poly = poly
             parity = 0
+            tmp_state = st
+            tmp_poly = poly
             for _ in range(K):
                 parity ^= (tmp_state & 1) & (tmp_poly & 1)
                 tmp_state >>= 1
                 tmp_poly >>= 1
-            out_bits.append("1" if parity else "0")
-        outputs[state] = "".join(out_bits)
+            val = (val << 1) | parity
+        outputs[st] = val
 
     # ---- 3. Encode loop (mirrors C++ Encode) ----
     state = 0
-    out: list[int] = []
+    tail = K - 1 if terminate else 0
+    out: list[int] = [0] * (2 * (len(bits) + tail))
+    i = 0
     for b in bits:
         idx = state | (b << (K - 1))
-        sym = outputs[idx]
-        out.append(int(sym[0]))
-        out.append(1 - int(sym[1]))  # G2 inverted on the channel
+        val = outputs[idx]
+        out[i] = (val >> 1) & 1
+        out[i + 1] = 1 - (val & 1)  # G2 inverted on the channel
         # NextState as per C++: (state >> 1) | (b << (K - 2))
         state = (state >> 1) | (b << (K - 2))
+        i += 2
     if terminate:
         for _ in range(K - 1):
             idx = state  # input bit is 0
-            sym = outputs[idx]
-            out.append(int(sym[0]))
-            out.append(1 - int(sym[1]))
+            val = outputs[idx]
+            out[i] = (val >> 1) & 1
+            out[i + 1] = 1 - (val & 1)
             state = state >> 1  # shift in zero
+            i += 2
     return out
 
 
@@ -365,7 +383,7 @@ def viterbi_decode(soft_bits: list[int] | np.ndarray, rate: str = "1/2") -> list
     metric.  For punctured rates the stream is first depunctured by inserting
     erasures at the omitted positions.
 
-    The trellis kernels are JIT-compiled with numba (``@njit(fastmath=True)``).
+    The trellis kernels are JIT-compiled with numba (``@njit``).
     """
     pattern = PUNCTURE_PATTERNS.get(rate)
     if pattern is None:
@@ -376,7 +394,7 @@ def viterbi_decode(soft_bits: list[int] | np.ndarray, rate: str = "1/2") -> list
     if len(arr) % 2 != 0:
         raise ValueError("Number of soft bits must be even (two per input symbol)")
 
-    next_state, out0, out1 = _build_tables()
+    next_state, out0, out1 = _get_trellis()
     if arr.dtype.kind in "iu":
         decoded = _viterbi_hard_kernel(arr.astype(np.int64), next_state, out0, out1)
     else:

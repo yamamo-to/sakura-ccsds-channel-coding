@@ -2,6 +2,9 @@
 
 Implements GF(2^8) using the CCSDS 131.0‑B‑4 field generator polynomial
 ``p(x) = x^8 + x^7 + x^2 + x + 1`` (``0x187``).
+
+Also provides dual‑basis transformation utilities (CCSDS 131.0‑B‑4 §4.1
+note) for Reed‑Solomon encoding/decoding in the dual basis.
 """
 
 from __future__ import annotations
@@ -59,3 +62,92 @@ def gf_inverse(a: int) -> int:
     if a == 0:
         raise ZeroDivisionError("inverse of 0 does not exist")
     return EXP_TABLE[(GF_SIZE - 1) - LOG_TABLE[a]]
+
+
+# ---------------------------------------------------------------------------
+# Dual‑basis transformation (CCSDS 131.0‑B‑4 §4.1 note)
+# ---------------------------------------------------------------------------
+#
+# The conventional basis of GF(2⁸) is ``{1, α, α², …, α⁷}`` where ``α = 2``
+# is the primitive element and the field generator is ``p(x) = x⁸ + x⁷ + x²
+# + x + 1`` (``0x187``).
+#
+# The *dual basis* ``{d₀, d₁, …, d₇}`` satisfies
+#
+#     tr(dᵢ · αʲ) = δᵢⱼ    (Kronecker delta)
+#
+# where ``tr(x) = x + x² + x⁴ + … + x¹²⁸`` is the absolute trace from
+# GF(2⁸) to GF(2).
+#
+# Dual‑basis coefficients ``cᵢ`` of a field element ``x`` are computed as
+#
+#     cᵢ = tr(x · dᵢ)
+#
+# and the element is reconstructed by ``x = ⊕_{cᵢ=1} dᵢ``.
+# The precomputed trace multiplication coefficients ``T[i]`` are defined so
+# that ``tr(x · dᵢ)`` equals the parity of ``(x & T[i])`` (popcount mod 2)
+# when ``x`` is in conventional‑basis representation.
+# ---------------------------------------------------------------------------
+
+#: Dual basis elements for the CCSDS ``p(x) = x⁸ + x⁷ + x² + x + 1``.
+DUAL_BASIS: List[int] = [0x03, 0xC1, 0xA0, 0x50, 0x28, 0x14, 0x0A, 0x06]
+
+#: Trace multiplication coefficients.
+#: ``tr(x · dᵢ) = popcount(x & T[i]) & 1`` for ``x`` in conventional basis.
+DUAL_TRACE_MULT_COEFFS: List[int] = [0xFE, 0xFF, 0x7F, 0xBF, 0x5F, 0xAF, 0x57, 0xAB]
+
+
+def gf_trace(x: int) -> int:
+    """Compute the absolute trace ``tr(x) = x + x² + x⁴ + … + x¹²⁸``.
+
+    Args:
+        x: Field element (0 .. 255) in conventional‑basis representation.
+
+    Returns:
+        ``0`` or ``1`` — the trace value in GF(2).
+    """
+    t = x
+    t ^= gf_mul(t, t)      # t²
+    t ^= gf_mul(t, t)      # t⁴
+    t ^= gf_mul(t, t)      # t⁸
+    return t & 1
+
+
+def gf_to_dual_basis(value: int) -> int:
+    """Convert a field element from conventional‑basis to dual‑basis.
+
+    The *conventional‑basis* representation of a value ``v`` (0 .. 255) uses
+    the bits of ``v`` as coefficients of ``{1, α, α², …, α⁷}``.
+    The *dual‑basis* representation reuses the same integer container but
+    interprets the bits as coefficients of the dual basis ``{d₀, …, d₇}``.
+
+    Args:
+        value: Field element in conventional‑basis representation.
+
+    Returns:
+        The same field element expressed in dual‑basis representation.
+    """
+    result = 0
+    for i in range(8):
+        # tr(value · dᵢ) = popcount(value & T[i]) & 1
+        if (value & DUAL_TRACE_MULT_COEFFS[i]).bit_count() & 1:
+            result |= 1 << i
+    return result
+
+
+def gf_from_dual_basis(value: int) -> int:
+    """Convert a field element from dual‑basis to conventional‑basis.
+
+    This is the inverse of :func:`gf_to_dual_basis`.
+
+    Args:
+        value: Field element in dual‑basis representation.
+
+    Returns:
+        The same field element expressed in conventional‑basis representation.
+    """
+    result = 0
+    for i in range(8):
+        if value & (1 << i):
+            result ^= DUAL_BASIS[i]
+    return result

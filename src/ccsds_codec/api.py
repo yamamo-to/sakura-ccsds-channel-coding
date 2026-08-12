@@ -83,11 +83,11 @@ class RSCodec(BaseEncoder[bytes, bytes], BaseDecoder[bytes, bytes]):
 
     def encode(self, data: bytes) -> bytes:
         """Encode *data* at the configured interleaving depth."""
-        return _rs_encode(data, depth=self.config.depth)
+        return _rs_encode(data, depth=self.config.depth, dual_basis=self.config.dual_basis)
 
     def decode(self, encoded: bytes) -> bytes:
         """Decode *encoded* at the configured interleaving depth."""
-        return _rs_decode(encoded, depth=self.config.depth)
+        return _rs_decode(encoded, depth=self.config.depth, dual_basis=self.config.dual_basis)
 
 
 class ConvCodec(BaseEncoder[list[int], list[int]], BaseDecoder[list[int], list[int]]):

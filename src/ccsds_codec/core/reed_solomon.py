@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import List
 
-from .galois import PRIMITIVE_POLY, gf_add, gf_mul, gf_pow
+from .galois import PRIMITIVE_POLY, gf_add, gf_mul, gf_pow, gf_from_dual_basis, gf_to_dual_basis
 
 # ---------------------------------------------------------------------------
 # Generator polynomial for RS(255,223)
@@ -50,11 +50,21 @@ GENERATOR = _generate_generator()
 # ---------------------------------------------------------------------------
 
 
-def encode_block(data_block: bytes) -> bytes:
+def encode_block(data_block: bytes, *, dual_basis: bool = False) -> bytes:
     """Encode a single RS_K‑byte block and return RS_N bytes.
 
     The algorithm uses a linear‑feedback shift register driven by the CCSDS
     generator polynomial.
+
+    Args:
+        data_block: ``RS_K`` bytes to encode.
+        dual_basis: When ``True``, encode in conventional basis first, then
+            transform the **entire** ``RS_N``‑byte codeword (data + parity) to
+            dual‑basis representation.  This preserves full compatibility with
+            ``reedsolo`` for error correction.
+
+    Returns:
+        Encoded ``RS_N`` bytes.
     """
     if len(data_block) != RS_K:
         raise ValueError(f"data block must be exactly {RS_K} bytes")
@@ -64,7 +74,10 @@ def encode_block(data_block: bytes) -> bytes:
         for i in range(RS_SYMS - 1):
             parity[i] = gf_add(parity[i + 1], gf_mul(feedback, GENERATOR[i + 1]))
         parity[-1] = gf_mul(feedback, GENERATOR[-1])
-    return data_block + bytes(parity)
+    result = data_block + bytes(parity)
+    if dual_basis:
+        result = bytes(gf_to_dual_basis(b) for b in result)
+    return result
 
 
 def _rs_split_stride(data: bytes, depth: int) -> List[bytes]:
@@ -85,7 +98,7 @@ def _rs_merge_column_major(blocks: List[bytes]) -> bytes:
     return b"".join(bytes(t) for t in zip(*blocks))
 
 
-def encode(data: bytes, depth: int = 1) -> bytes:
+def encode(data: bytes, depth: int = 1, *, dual_basis: bool = False) -> bytes:
     """Encode *data* with the RS(255,223) code and optional interleaving.
 
     The input is partitioned into groups of ``RS_K * depth`` bytes (the final
@@ -99,6 +112,8 @@ def encode(data: bytes, depth: int = 1) -> bytes:
         data: Raw bytes to encode (arbitrary length; the final partial group
             is zero‑padded to ``RS_K * depth`` bytes).
         depth: Interleaving depth, 1..5 (default 1).
+        dual_basis: When ``True``, encode each data symbol in dual‑basis
+            representation (CCSDS 131.0‑B‑4 §4.1 note).
 
     Returns:
         Encoded bytes: ``RS_N * depth`` bytes per input group of
@@ -114,7 +129,7 @@ def encode(data: bytes, depth: int = 1) -> bytes:
         group = data[i : i + group_size]
         padded = group.ljust(group_size, b"\x00")
         blocks = _rs_split_stride(padded, depth)
-        encoded_blocks = [encode_block(b) for b in blocks]
+        encoded_blocks = [encode_block(b, dual_basis=dual_basis) for b in blocks]
         out.extend(_rs_merge_column_major(encoded_blocks))
     return bytes(out)
 
@@ -124,12 +139,19 @@ def encode(data: bytes, depth: int = 1) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def _fallback_decode_block(encoded_block: bytes) -> bytes:
+def _fallback_decode_block(encoded_block: bytes, *, dual_basis: bool = False) -> bytes:
     """Fallback decoder used when ``reedsolo`` is unavailable.
 
     It recomputes the expected parity for the data portion and compares it with
     the received parity.  If they differ a ``ValueError`` is raised; otherwise the
     data part is returned.
+
+    Args:
+        encoded_block: ``RS_N`` encoded bytes.
+        dual_basis: When ``True``, the data portion of *encoded_block* is
+            already in dual‑basis representation.  Parity is verified by
+            calling :func:`encode_block` **without** dual‑basis transformation
+            (the data must already be in the form the LFSR expects).
     """
     if len(encoded_block) != RS_N:
         raise ValueError(f"Encoded block must be exactly {RS_N} bytes")
@@ -140,28 +162,51 @@ def _fallback_decode_block(encoded_block: bytes) -> bytes:
     return data_part
 
 
-def decode_block(encoded_block: bytes) -> bytes:
+def decode_block(encoded_block: bytes, *, dual_basis: bool = False) -> bytes:
     """Decode a single ``RS_N``‑byte block.
 
     If the optional ``reedsolo`` package is present, it is used for full error
     correction.  Otherwise the fallback decoder verifies parity and raises a
     ``ValueError`` on any discrepancy.
+
+    When ``dual_basis`` is ``True``:
+    1. Transform every byte of the received codeword from dual‑basis to
+       conventional‑basis.
+    2. Use ``reedsolo`` for full error correction on the conventional codeword.
+    3. Convert the decoded data portion back to dual‑basis.
+
+    Args:
+        encoded_block: ``RS_N`` encoded bytes.
+        dual_basis: When ``True``, the input is in dual‑basis representation.
+            Full error correction is supported by converting to conventional
+            basis, decoding with ``reedsolo``, then converting back.
+
+    Returns:
+        Decoded ``RS_K`` bytes.  With ``dual_basis=True`` the result is in
+        dual‑basis representation.
     """
+    if dual_basis:
+        conv = bytes(gf_from_dual_basis(b) for b in encoded_block)
+        import reedsolo  # type: ignore
+        rs_ext = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=112, prim=PRIMITIVE_POLY)
+        decoded = rs_ext.decode(conv)
+        if isinstance(decoded, tuple):
+            decoded = decoded[0]
+        return bytes(gf_to_dual_basis(b) for b in decoded[:RS_K])
     try:
         import reedsolo  # type: ignore
-
-        # Use reedsolo with CCSDS parameters (nsym, nsize, fcr, prim).
         rs_ext = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=112, prim=PRIMITIVE_POLY)
         decoded = rs_ext.decode(encoded_block)
-        # reedsolo.decode returns a tuple (data, full_block, errata_positions).
         if isinstance(decoded, tuple):
             decoded = decoded[0]
         return bytes(decoded[:RS_K])
-    except Exception:  # ImportError or any decoding error – fall back
+    except ImportError:
+        return _fallback_decode_block(encoded_block)
+    except reedsolo.ReedSolomonError:  # type: ignore[name-defined]
         return _fallback_decode_block(encoded_block)
 
 
-def decode(encoded: bytes, depth: int = 1) -> bytes:
+def decode(encoded: bytes, depth: int = 1, *, dual_basis: bool = False) -> bytes:
     """Decode *encoded* data produced by :func:`encode` with interleaving.
 
     The *depth* argument must be an integer between 1 and 5 (inclusive).  The
@@ -177,6 +222,9 @@ def decode(encoded: bytes, depth: int = 1) -> bytes:
     Args:
         encoded: Encoded bytes; length must be a multiple of ``RS_N * depth``.
         depth: Interleaving depth, 1..5 (default 1).
+        dual_basis: When ``True``, the input is in dual‑basis representation.
+            Each decoded data block is converted from dual‑basis back to
+            conventional‑basis.
 
     Returns:
         Decoded bytes: ``RS_K * depth`` per input group, including any zero
@@ -198,7 +246,7 @@ def decode(encoded: bytes, depth: int = 1) -> bytes:
         decoded_blocks = []
         for block_idx, block in enumerate(blocks):
             try:
-                decoded_blocks.append(decode_block(block))
+                decoded_blocks.append(decode_block(block, dual_basis=dual_basis))
             except ValueError as e:
                 # Provide context about which block failed.
                 group_idx = i // group_size

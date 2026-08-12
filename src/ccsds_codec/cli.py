@@ -82,14 +82,14 @@ def _conv(mode: str, rate: str | None, parser: argparse.ArgumentParser) -> None:
         _write_bits(decode_byte_padded(bits, rate))
 
 
-def _rs(mode: str, depth: int) -> None:
+def _rs(mode: str, depth: int, dual_basis: bool) -> None:
     """Handle the rs-enc / rs-dec modes (bytes in, bytes out)."""
     data = _read_bytes()
     if mode == "rs-enc":
-        _write_bytes(rs_encode(data, depth=depth))
+        _write_bytes(rs_encode(data, depth=depth, dual_basis=dual_basis))
         return
     try:
-        _write_bytes(rs_decode(data, depth=depth))
+        _write_bytes(rs_decode(data, depth=depth, dual_basis=dual_basis))
     except ValueError as e:
         print(f"RS decode error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -135,13 +135,18 @@ def main() -> None:
         choices=[1, 2, 3, 4, 5],
         help="RS interleaving depth (default 1)",
     )
+    parser.add_argument(
+        "--dual-basis",
+        action="store_true",
+        help="Use dual‑basis representation for RS encode/decode (CCSDS 131.0-B‑4 §4.1 note)",
+    )
     args = parser.parse_args()
 
     mode = args.mode
     if mode.startswith("conv"):
         _conv(mode, args.rate, parser)
     elif mode.startswith("rs"):
-        _rs(mode, args.depth)
+        _rs(mode, args.depth, args.dual_basis)
     elif mode.startswith("turbo"):
         _turbo(mode, args.rate, parser)
     elif mode == "rand":

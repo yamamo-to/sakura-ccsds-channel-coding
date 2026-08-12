@@ -269,7 +269,7 @@ def _build_trellis(gens: list[int]) -> tuple[np.ndarray, np.ndarray, np.ndarray,
 
 # pragma: no cover on the def line below — coverage.py cannot trace into
 # numba-JIT bodies, so the whole kernel is excluded from coverage reports.
-@njit(fastmath=True, cache=True)
+@njit(cache=True)
 def _bcjr_kernel(  # pragma: no cover
     ch: np.ndarray,
     la: np.ndarray,
@@ -375,7 +375,7 @@ _bcjr_kernel(
 def _llr_array(bits: list[int]) -> np.ndarray:
     """Map 0/1 bits to LLRs (+LLR_0 / LLR_1); any other value is an erasure → 0.0."""
     a = np.asarray(bits, dtype=np.float64)
-    return np.where(a == 0.0, LLR_0, np.where(a == 1.0, LLR_1, 0.0)).astype(np.float64)
+    return np.where(a == 0.0, LLR_0, np.where(a == 1.0, LLR_1, 0.0))
 
 
 def _demux(rx: np.ndarray, rate: str, K: int, perm: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -447,9 +447,9 @@ def _turbo_decode_core(rx: np.ndarray, rate: str, K: int, iterations: int) -> np
         ext_u, _ = _bcjr_kernel(upper_ch, la, ns_u, x_u, p0u, p1u, K)
         la_l = ext_u[perm]
         ext_l, app_l = _bcjr_kernel(lower_ch, la_l, ns_l, x_l, p0l, p1l, K)
-        la = np.empty(K, dtype=np.float64)
+        la = np.zeros(K, dtype=np.float64)
         la[perm] = ext_l
-        app = np.empty(K, dtype=np.float64)
+        app = np.zeros(K, dtype=np.float64)
         app[perm] = app_l
     return (app <= 0).astype(np.uint8)
 

@@ -70,9 +70,12 @@ class RSConfig:
 
     Attributes:
         depth: Interleaving depth (default 1).
+        dual_basis: When ``True``, encode/decode in dual‑basis representation
+            (CCSDS 131.0‑B‑4 §4.1 note, optional).
     """
 
     depth: int = 1
+    dual_basis: bool = False
 
     def __post_init__(self) -> None:
         if not 1 <= self.depth <= 5:
