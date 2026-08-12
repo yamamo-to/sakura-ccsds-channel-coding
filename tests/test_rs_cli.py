@@ -1,4 +1,6 @@
-import os, subprocess, sys
+import os
+import subprocess
+import sys
 from pathlib import Path
 import pytest
 
@@ -36,6 +38,7 @@ def test_cli_rs_depth_roundtrip(depth):
     )
     assert dec.returncode == 0, dec.stderr
     assert dec.stdout[: len(payload)] == payload
+
 
 def test_cli_rs_depth_invalid_choice():
     proc = subprocess.run(
