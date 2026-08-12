@@ -28,6 +28,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 preview = true
+exclude = ["get-pip.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "C90"]
