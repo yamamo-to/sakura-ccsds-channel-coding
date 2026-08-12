@@ -46,6 +46,40 @@ def _generate_generator() -> List[int]:
 GENERATOR = _generate_generator()
 
 # ---------------------------------------------------------------------------
+# Cached reedsolo.RSCodec instances (same parameters, constructed once)
+# ---------------------------------------------------------------------------
+_rs_codec: object | None = None
+_rs_codec_dual: object | None = None
+
+
+def _get_rs_codec(dual_basis: bool) -> object | None:
+    """Return a cached reedsolo.RSCodec instance, or None if unavailable."""
+    global _rs_codec, _rs_codec_dual
+    if dual_basis:
+        if _rs_codec_dual is None:
+            try:
+                import reedsolo  # type: ignore
+                _rs_codec_dual = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=112, prim=PRIMITIVE_POLY)
+            except ImportError:
+                return None
+        return _rs_codec_dual
+    if _rs_codec is None:
+        try:
+            import reedsolo  # type: ignore
+            _rs_codec = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=112, prim=PRIMITIVE_POLY)
+        except ImportError:
+            return None
+    return _rs_codec
+
+
+def _clear_rs_codec_cache() -> None:
+    """Clear cached reedsolo.RSCodec instances (for testing only)."""
+    global _rs_codec, _rs_codec_dual
+    _rs_codec = None
+    _rs_codec_dual = None
+
+
+# ---------------------------------------------------------------------------
 # Encoding helpers
 # ---------------------------------------------------------------------------
 
@@ -186,23 +220,26 @@ def decode_block(encoded_block: bytes, *, dual_basis: bool = False) -> bytes:
         dual‑basis representation.
     """
     if dual_basis:
-        conv = bytes(gf_from_dual_basis(b) for b in encoded_block)
-        import reedsolo  # type: ignore
-        rs_ext = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=112, prim=PRIMITIVE_POLY)
-        decoded = rs_ext.decode(conv)
-        if isinstance(decoded, tuple):
-            decoded = decoded[0]
-        return bytes(gf_to_dual_basis(b) for b in decoded[:RS_K])
+        try:
+            conv = bytes(gf_from_dual_basis(b) for b in encoded_block)
+            rs_ext = _get_rs_codec(dual_basis=True)
+            if rs_ext is None:
+                return _fallback_decode_block(encoded_block, dual_basis=dual_basis)
+            decoded = rs_ext.decode(conv)
+            if isinstance(decoded, tuple):
+                decoded = decoded[0]
+            return bytes(gf_to_dual_basis(b) for b in decoded[:RS_K])
+        except Exception:  # ReedSolomonError or decode error
+            return _fallback_decode_block(encoded_block, dual_basis=dual_basis)
+    rs_ext = _get_rs_codec(dual_basis=False)
+    if rs_ext is None:
+        return _fallback_decode_block(encoded_block)
     try:
-        import reedsolo  # type: ignore
-        rs_ext = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=112, prim=PRIMITIVE_POLY)
         decoded = rs_ext.decode(encoded_block)
         if isinstance(decoded, tuple):
             decoded = decoded[0]
         return bytes(decoded[:RS_K])
-    except ImportError:
-        return _fallback_decode_block(encoded_block)
-    except reedsolo.ReedSolomonError:  # type: ignore[name-defined]
+    except Exception:  # ReedSolomonError or decode error
         return _fallback_decode_block(encoded_block)
 
 

@@ -22,6 +22,7 @@ __all__ = ["ccsds_interleaver", "ccsds_deinterleaver", "ccsds_perm"]
 PRIMES = (31, 37, 43, 47, 53, 59, 61, 67)
 
 _K1 = 8
+_perm_cache: dict[int, list[int]] = {}
 
 
 def ccsds_perm(K: int) -> list[int]:
@@ -43,6 +44,8 @@ def ccsds_perm(K: int) -> list[int]:
     """
     if K <= 0 or K % _K1 != 0:
         raise ValueError(f"CCSDS §6.3g interleaver requires a block length divisible by 8, got {K}")
+    if K in _perm_cache:
+        return _perm_cache[K]
     k2 = K // _K1
     perm: list[int] = []
     for s in range(1, K + 1):  # 1-based position within the block
@@ -59,6 +62,7 @@ def ccsds_perm(K: int) -> list[int]:
             "the CCSDS standard only guarantees the construction for the block "
             "lengths 1784, 3568, 7136, 8920 and 16384"
         )
+    _perm_cache[K] = perm
     return perm
 
 

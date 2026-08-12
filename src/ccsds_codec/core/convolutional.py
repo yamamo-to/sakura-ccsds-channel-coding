@@ -45,6 +45,12 @@ G1 = 0x6D
 K = 7  # constraint length
 MASK = (1 << K) - 1
 
+# Pre-computed bit-reversed polynomials for encode_cxx
+_REV_POLYS = tuple(
+    int("".join(str((p >> i) & 1) for i in range(K)), 2)
+    for p in (G0, G1)
+)
+
 
 @njit
 def _parity(x: int) -> int:
@@ -276,21 +282,11 @@ def encode_cxx(bits: list[int], terminate: bool = True) -> list[int]:
         raise ValueError("Input bit list must not be empty for C++‑compatible encode")
     _validate_bits(bits)
 
-    # ---- 1. Build reversed polynomials (lsb‑current representation) ----
-    def rev(poly: int) -> int:
-        out = 0
-        for _ in range(K):
-            out = (out << 1) | (poly & 1)
-            poly >>= 1
-        return out
-
-    rev_polys = [rev(G0), rev(G1)]
-
-    # ---- 2. Pre‑compute output table as integer (bit1<<1|bit0, identical to ViterbiCodec) ----
+    # ---- 1. Pre‑compute output table as integer (bit1<<1|bit0, identical to ViterbiCodec) ----
     outputs: list[int] = [0] * (1 << K)
     for st in range(1 << K):
         val = 0
-        for poly in rev_polys:
+        for poly in _REV_POLYS:
             parity = 0
             tmp_state = st
             tmp_poly = poly
@@ -360,15 +356,13 @@ def _depuncture(rx: np.ndarray, pattern: str) -> np.ndarray:
             raise ValueError(f"Invalid punctured stream length {len(rx)} for pattern {pattern!r}")
         L += 2
     is_int = rx.dtype.kind in "iu"
-    out = np.empty(L, dtype=np.int64 if is_int else np.float64)
     fill = -1 if is_int else 0.0
-    j = 0
-    for i in range(L):
-        if pattern[i % pat_len] == "1":
-            out[i] = rx[j]
-            j += 1
-        else:
-            out[i] = fill
+    # Build mask: 1 where pattern transmits, 0 where it punctures
+    mask = np.array([1 if pattern[i % pat_len] == "1" else 0 for i in range(L)], dtype=np.int64)
+    out = np.full(L, fill, dtype=np.float64)
+    out[mask == 1] = rx
+    if is_int:
+        return out.astype(np.int64)
     return out
 
 

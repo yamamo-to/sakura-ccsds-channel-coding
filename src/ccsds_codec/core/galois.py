@@ -127,12 +127,18 @@ def gf_to_dual_basis(value: int) -> int:
     Returns:
         The same field element expressed in dual‑basis representation.
     """
-    result = 0
-    for i in range(8):
-        # tr(value · dᵢ) = popcount(value & T[i]) & 1
-        if (value & DUAL_TRACE_MULT_COEFFS[i]).bit_count() & 1:
-            result |= 1 << i
-    return result
+    v = value
+    r = 0
+    # Unrolled loop: tr(v · dᵢ) = popcount(v & T[i]) & 1
+    if (v & DUAL_TRACE_MULT_COEFFS[0]).bit_count() & 1: r |= 1 << 0
+    if (v & DUAL_TRACE_MULT_COEFFS[1]).bit_count() & 1: r |= 1 << 1
+    if (v & DUAL_TRACE_MULT_COEFFS[2]).bit_count() & 1: r |= 1 << 2
+    if (v & DUAL_TRACE_MULT_COEFFS[3]).bit_count() & 1: r |= 1 << 3
+    if (v & DUAL_TRACE_MULT_COEFFS[4]).bit_count() & 1: r |= 1 << 4
+    if (v & DUAL_TRACE_MULT_COEFFS[5]).bit_count() & 1: r |= 1 << 5
+    if (v & DUAL_TRACE_MULT_COEFFS[6]).bit_count() & 1: r |= 1 << 6
+    if (v & DUAL_TRACE_MULT_COEFFS[7]).bit_count() & 1: r |= 1 << 7
+    return r
 
 
 def gf_from_dual_basis(value: int) -> int:
