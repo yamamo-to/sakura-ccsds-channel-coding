@@ -156,7 +156,7 @@ def decode_block(encoded_block: bytes) -> bytes:
         # reedsolo.decode returns a tuple (data, full_block, errata_positions).
         if isinstance(decoded, tuple):
             decoded = decoded[0]
-        return decoded[:RS_K]
+        return bytes(decoded[:RS_K])
     except Exception:  # ImportError or any decoding error – fall back
         return _fallback_decode_block(encoded_block)
 

@@ -270,7 +270,15 @@ def _build_trellis(gens: list[int]) -> tuple[np.ndarray, np.ndarray, np.ndarray,
 # pragma: no cover on the def line below — coverage.py cannot trace into
 # numba-JIT bodies, so the whole kernel is excluded from coverage reports.
 @njit(fastmath=True, cache=True)
-def _bcjr_kernel(ch, la, ns, x, pred0, pred1, data_len):  # pragma: no cover
+def _bcjr_kernel(  # pragma: no cover
+    ch: np.ndarray,
+    la: np.ndarray,
+    ns: np.ndarray,
+    x: np.ndarray,
+    pred0: np.ndarray,
+    pred1: np.ndarray,
+    data_len: int,
+) -> tuple[np.ndarray, np.ndarray]:
     """Log‑MAP (BCJR) kernel for one recursive RSC constituent (numba JIT).
 
     Golden-verified formulation (see scratch_turbo_decoder.py):
@@ -512,7 +520,7 @@ def decode(punctured_bits: list[int], iterations: int = 5, rate: str | None = No
     if iterations <= 0:
         return stream[0 :: NCOMP[rate]][:K]
     rx = _llr_array(stream)
-    return _turbo_decode_core(rx, rate, K, iterations).tolist()
+    return [int(x) for x in _turbo_decode_core(rx, rate, K, iterations)]
 
 
 def decode_unpunctured(turbo_bits: list[int], iterations: int = 3) -> list[int]:

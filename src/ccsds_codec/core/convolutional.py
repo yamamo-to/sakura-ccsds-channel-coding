@@ -115,7 +115,7 @@ def encode(bits: list[int], terminate: bool = False, rate: str = "1/2") -> list[
 
 
 @njit(fastmath=True)
-def _build_tables():
+def _build_tables() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Precompute the 2^K-state trellis tables.
 
     Returns three (2^K, 2) integer arrays:
@@ -138,7 +138,9 @@ def _build_tables():
 
 
 @njit(fastmath=True)
-def _viterbi_hard_kernel(rx, next_state, out0, out1):
+def _viterbi_hard_kernel(
+    rx: np.ndarray, next_state: np.ndarray, out0: np.ndarray, out1: np.ndarray
+) -> np.ndarray:
     """Hard-decision Viterbi kernel (Hamming-distance metric).
 
     A received symbol equal to -1 marks an erasure (a punctured position);
@@ -188,7 +190,9 @@ def _viterbi_hard_kernel(rx, next_state, out0, out1):
 
 
 @njit(fastmath=True)
-def _viterbi_llr_kernel(rx, next_state, out0, out1):
+def _viterbi_llr_kernel(
+    rx: np.ndarray, next_state: np.ndarray, out0: np.ndarray, out1: np.ndarray
+) -> np.ndarray:
     """Soft-decision Viterbi kernel (LLR metric, maximized).
 
     ``rx`` holds log-likelihood ratios with the convention: positive value =
@@ -377,7 +381,7 @@ def viterbi_decode(soft_bits: list[int] | np.ndarray, rate: str = "1/2") -> list
         decoded = _viterbi_hard_kernel(arr.astype(np.int64), next_state, out0, out1)
     else:
         decoded = _viterbi_llr_kernel(arr.astype(np.float64), next_state, out0, out1)
-    return decoded.tolist()
+    return [int(x) for x in decoded]
 
 
 def decode_byte_padded(soft_bits: list[int], rate: str) -> list[int]:
