@@ -113,7 +113,6 @@ def test_encode_fallback_and_decode_fallback(monkeypatch):
 def test_internal_decode_corrects_errors(monkeypatch):
     # Ensure fallback path (no external reedsolo) for the internal decoder
     monkeypatch.setitem(sys.modules, "reedsolo", None)
-    import importlib
     import ccsds_codec.core.reed_solomon as _rs_core
     _rs_core._clear_rs_codec_cache()  # clear cache so import failure is detected
     import os
@@ -135,7 +134,6 @@ def test_internal_decode_corrects_errors(monkeypatch):
 
 def test_internal_decode_too_many_errors(monkeypatch):
     monkeypatch.setitem(sys.modules, "reedsolo", None)
-    import importlib
     import ccsds_codec.core.reed_solomon as _rs_core
     _rs_core._clear_rs_codec_cache()  # clear cache so import failure is detected
     import os

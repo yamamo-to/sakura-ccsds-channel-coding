@@ -6,6 +6,7 @@ __pycache__/
 # Test coverage files
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
 *.cover
 *.log

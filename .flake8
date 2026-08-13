@@ -1,3 +1,10 @@
 [flake8]
 max-line-length = 100
 extend-ignore = E203,W503
+exclude = get-pip.py, venv, .venv, build
+per-file-ignores =
+    # galois.py: unrolled 8-bit basis-conversion loops (intentional, verified)
+    src/ccsds_codec/core/galois.py: E701
+    # Backwards-compatible shims: intentional re-exports
+    src/ccsds_codec/conv.py: F401
+    src/ccsds_codec/turbo.py: F401

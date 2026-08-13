@@ -34,6 +34,17 @@ exclude = ["get-pip.py"]
 select = ["E", "F", "W", "C90"]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# galois.py: unrolled 8-bit basis-conversion loops (intentional, verified)
+"src/ccsds_codec/core/galois.py" = ["E701"]
+# turbo.py: encode() dispatches 4 CCSDS rate layouts in one function
+"src/ccsds_codec/core/turbo.py" = ["C901"]
+
 [tool.mypy]
 strict = true
-python_version = "3.11"
+
+# numba's @njit wraps functions in a Dispatcher object whose callable type
+# mypy cannot infer (known numba/mypy incompatibility, upstream issue #4440).
+[[tool.mypy.overrides]]
+module = ["ccsds_codec.core.convolutional", "ccsds_codec.core.turbo"]
+disable_error_code = ["call-overload", "type-var", "operator"]

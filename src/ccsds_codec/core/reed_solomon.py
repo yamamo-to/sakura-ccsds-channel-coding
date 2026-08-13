@@ -12,7 +12,7 @@ fallback decoder is used which simply verifies the parity and raises a
 
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 from .galois import PRIMITIVE_POLY, gf_add, gf_mul, gf_pow, gf_from_dual_basis, gf_to_dual_basis
 
@@ -52,7 +52,7 @@ _rs_codec: object | None = None
 _rs_codec_dual: object | None = None
 
 
-def _get_rs_codec(dual_basis: bool) -> object | None:
+def _get_rs_codec(dual_basis: bool) -> Any | None:
     """Return a cached reedsolo.RSCodec instance, or None if unavailable."""
     global _rs_codec, _rs_codec_dual
     if dual_basis:
@@ -65,7 +65,7 @@ def _get_rs_codec(dual_basis: bool) -> object | None:
         return _rs_codec_dual
     if _rs_codec is None:
         try:
-            import reedsolo  # type: ignore
+            import reedsolo
             _rs_codec = reedsolo.RSCodec(RS_SYMS, nsize=RS_N, fcr=112, prim=PRIMITIVE_POLY)
         except ImportError:
             return None

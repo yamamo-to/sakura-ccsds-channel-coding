@@ -356,9 +356,11 @@ def _depuncture(rx: np.ndarray, pattern: str) -> np.ndarray:
             raise ValueError(f"Invalid punctured stream length {len(rx)} for pattern {pattern!r}")
         L += 2
     is_int = rx.dtype.kind in "iu"
-    fill = np.int64(-1) if is_int else np.float64(0.0)
     # Precompute pattern cycle mask (same for all depuncture calls with same pattern)
-    cycle_mask = np.array([1 if pattern[i % pat_len] == "1" else 0 for i in range(pat_len)], dtype=np.int64)
+    cycle_mask = np.array(
+        [1 if pattern[i % pat_len] == "1" else 0 for i in range(pat_len)],
+        dtype=np.int64,
+    )
     # Extend mask to full length using broadcast
     full_mask = np.tile(cycle_mask, (L + pat_len - 1) // pat_len)[:L]
     out: np.ndarray
