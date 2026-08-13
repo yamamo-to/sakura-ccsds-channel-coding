@@ -4,8 +4,9 @@ This repository provides lightweight, pipe‑compatible implementations of the
 CCSDS forward error correction chain (CCSDS 131.0‑B‑4):
 
 * **Randomizer** – CCSDS pseudo‑randomizer (polynomial *x⁸ + x⁷ + x⁵ + x³ + 1*).
-* **Convolutional coder** – rate‑1/2, constraint length 7 (generators 0x79 / 0x5B,
-  with the second output inverted on the channel), plus punctured rates
+* **Convolutional coder** – rate‑1/2, constraint length 7 (generators
+  171₈ / 133₈, with the second output inverted on the channel), plus
+  punctured rates
   2/3, 3/4, 5/6 and 7/8.  Decoding uses the Viterbi algorithm.
 * **Reed–Solomon** – RS(255,223) over GF(2⁸), interleaving depth 1…5.
 * **Turbo coder** – RSC constituent codes, QPP interleaver, rates 1/2, 1/3, 1/4, 1/6,

@@ -2,7 +2,7 @@
 
 **対象規格**: CCSDS 131.0-B-4 (TM Synchronization and Channel Coding)
 **対象実装**: `ccsds-codec` (Python 3.11+)
-**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed）→ **2026-08-11: 314 passed**（in-process CLI テスト `test_cli.py`・エッジカバレッジテスト `test_edge_coverage.py` 追加、`BaseEncoder`/`BaseDecoder` の Generic 化）
+**検証日**: 2026-08-10（初版 81f5283 時点 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed）→ **2026-08-11: 314 passed**（in-process CLI テスト `test_cli.py`・エッジカバレッジテスト `test_edge_coverage.py` 追加、`BaseEncoder`/`BaseDecoder` の Generic 化）→ **2026-08-12: 363 passed**
 **検証環境**: Python 3.14.4 / numpy + numba / reedsolo (import 可) / pytest 287 passed
 
 ---
@@ -157,7 +157,7 @@
 ## 付記
 
 - 本マトリックスの `file:line` 引用は検証スクリプトにより実在確認済み。テスト名はテストディレクトリの実スキャンで確認済み。
-- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed（2026-08-10）→ **314 passed**（2026-08-11, Python 3.14.4）→ **338 passed**（デコーダ外部参照照合を全 4 標準長に拡張）→ **339 passed**（config 整合性テスト追加）→ **340 passed**（TURBO-11 反復回数バリデーションテスト追加）→ **344 passed**（PERF-02 性能テスト + numba 非搭載環境テスト）。`ruff check src/ccsds_codec tests` は通過済み。
+- 実行証跡: `pytest` 189 passed → 228 passed → 238 passed → 267 passed → 282 passed → 287 passed（2026-08-10）→ **314 passed**（2026-08-11, Python 3.14.4）→ **338 passed**（デコーダ外部参照照合を全 4 標準長に拡張）→ **339 passed**（config 整合性テスト追加）→ **340 passed**（TURBO-11 反復回数バリデーションテスト追加）→ **344 passed**（PERF-02 性能テスト + numba 非搭載環境テスト）→ **363 passed**（2026-08-12）。`ruff check src/ccsds_codec tests` は通過済み。
 - RS のゴールデンベクトル (`test_rs.py::test_encode_known_vector`) は reedsolo の CCSDS パラメータ (fcr=112, prim=0x187) との parity 一致で検証。
 - CONV のゴールデンベクトル (`test_conv_known.py`) は gr-satellites の GNU Radio 実装とのビット一致で検証。
 - Turbo インタリーバのゴールデンベクトル (`test_turbo_golden.py`) は mdmoctezuma/CCSDSTurboCode の `ccsdsSize1784.txt`（CCSDS 標準インタリーバ表）との K=1784 完全一致で検証（`tests/data/ccsdsSize1784.txt` としてコミット、sha256 c7094e37...）。
